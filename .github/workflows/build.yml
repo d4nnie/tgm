@@ -1,0 +1,66 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint with ruff
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Type check with ty
+        run: uv run ty check .
+
+      - name: Run tests
+        # pytest exits 5 when no tests are collected; treat that as success
+        # while the suite is still empty.
+        run: uv run pytest || [ $? -eq 5 ]
+
+  # The two build jobs below are stubs. They will gain real PyInstaller
+  # pipelines (linuxdeploy + appimagetool for .AppImage; single-file .exe
+  # for Windows) plus artifact uploads and tag-driven Releases later.
+  build-linux:
+    name: Build Linux artefact (stub)
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Stub
+        run: echo "TODO — PyInstaller + linuxdeploy + appimagetool to produce .AppImage"
+
+  build-windows:
+    name: Build Windows artefact (stub)
+    needs: lint-and-test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Stub
+        shell: bash
+        run: echo "TODO — PyInstaller single-file .exe"

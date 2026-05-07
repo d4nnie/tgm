@@ -1,12 +1,10 @@
 [project]
-name = "telegram-monitor"
+name = "tgm"
 version = "0.1.0"
 description = "Personal desktop monitor of Telegram chats with LLM-powered digests"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [
-    { name = "d4nnie", email = "dshchepetilnikov@gmail.com" },
-]
+authors = [{ name = "d4nnie", email = "dshchepetilnikov@gmail.com" }]
 dependencies = []
 
 [project.scripts]
@@ -20,12 +18,7 @@ build-backend = "hatchling.build"
 packages = ["tgm"]
 
 [dependency-groups]
-dev = [
-    "pre-commit>=4.6.0",
-    "pytest>=9.0.3",
-    "ruff>=0.15.12",
-    "ty>=0.0.34",
-]
+dev = ["pre-commit>=4.6.0", "pytest>=9.0.3", "ruff>=0.15.12", "ty>=0.0.34"]
 
 [tool.ruff]
 target-version = "py311"
