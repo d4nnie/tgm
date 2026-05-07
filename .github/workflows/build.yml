@@ -17,10 +17,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -48,10 +48,10 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -89,7 +89,7 @@ jobs:
         run: ./telegram-monitor-x86_64.AppImage --appimage-extract-and-run
 
       - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: telegram-monitor-linux
           path: telegram-monitor-x86_64.AppImage
@@ -101,10 +101,10 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -121,7 +121,7 @@ jobs:
         run: dist\telegram-monitor.exe
 
       - name: Upload .exe artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: telegram-monitor-windows
           path: dist/telegram-monitor.exe
@@ -135,19 +135,19 @@ jobs:
       contents: write
     steps:
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: telegram-monitor-linux
           path: artifacts/
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: telegram-monitor-windows
           path: artifacts/
 
       - name: Create / update Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/telegram-monitor-x86_64.AppImage
