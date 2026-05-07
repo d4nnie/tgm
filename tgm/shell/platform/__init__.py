@@ -25,13 +25,25 @@ def user_data_dir() -> Path:
 def ensure_user_data_dir() -> Path:
     directory = user_data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    _restrict_directory_access(directory)
+    restrict_path_access(directory)
 
     config_path = directory / _CONFIG_FILENAME
     if not config_path.exists():
         config_path.touch()
 
     return directory
+
+
+def restrict_path_access(path: Path) -> None:
+    """Restrict path access to the current user only.
+
+    POSIX: chmod 0700 for directories, 0600 for files.
+    Windows: icacls with broken inheritance, granting full control to the current user.
+    """
+    if sys.platform == "win32":
+        _restrict_path_access_windows(path)
+    else:
+        path.chmod(0o700 if path.is_dir() else 0o600)
 
 
 @contextlib.contextmanager
@@ -44,17 +56,11 @@ def acquire_single_instance_lock() -> Iterator[None]:
             yield
 
 
-def _restrict_directory_access(directory: Path) -> None:
-    if sys.platform == "win32":
-        _restrict_directory_access_windows(directory)
-    else:
-        directory.chmod(0o700)
-
-
-def _restrict_directory_access_windows(directory: Path) -> None:
+def _restrict_path_access_windows(path: Path) -> None:
     username = getpass.getuser()
+    ace = f"{username}:(OI)(CI)F" if path.is_dir() else f"{username}:F"
     subprocess.run(
-        ["icacls", str(directory), "/inheritance:r", "/grant:r", f"{username}:(OI)(CI)F"],
+        ["icacls", str(path), "/inheritance:r", "/grant:r", ace],
         check=True,
         capture_output=True,
     )
