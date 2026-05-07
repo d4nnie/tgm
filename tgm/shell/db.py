@@ -2,6 +2,26 @@ import os
 import sqlite3
 from pathlib import Path
 
+_DB_PATH_ENV_VAR = "TGM_DB_PATH"
+_XDG_DATA_HOME_ENV_VAR = "XDG_DATA_HOME"
+_DEFAULT_XDG_DATA_HOME = Path.home() / ".local" / "share"
+_APP_DATA_DIRNAME = "telegram-monitor"
+_DB_FILENAME = "db.sqlite"
+
+_PRAGMA_JOURNAL_MODE_WAL = "PRAGMA journal_mode=WAL"
+_PRAGMA_SYNCHRONOUS_NORMAL = "PRAGMA synchronous=NORMAL"
+_PRAGMA_FOREIGN_KEYS_ON = "PRAGMA foreign_keys=ON"
+
+_SCHEMA_VERSION_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS schema_version (
+    version    INTEGER PRIMARY KEY,
+    applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+_SELECT_CURRENT_SCHEMA_VERSION = "SELECT COALESCE(MAX(version), 0) FROM schema_version"
+_INSERT_SCHEMA_VERSION = "INSERT INTO schema_version(version) VALUES (?)"
+
 _INITIAL_DDL = """
 CREATE TABLE user_profile (
     key   TEXT PRIMARY KEY,
@@ -69,9 +89,9 @@ CREATE TABLE feedback (
 );
 
 CREATE TABLE run_state (
-    scope         TEXT PRIMARY KEY,
-    last_run_at   TIMESTAMP,
-    last_msg_id   INTEGER
+    scope       TEXT PRIMARY KEY,
+    last_run_at TIMESTAMP,
+    last_msg_id INTEGER
 );
 """
 
@@ -81,33 +101,28 @@ _MIGRATIONS: list[tuple[int, str]] = [
 
 
 def resolve_db_path() -> Path:
-    override = os.environ.get("TGM_DB_PATH")
+    override = os.environ.get(_DB_PATH_ENV_VAR)
     if override:
         return Path(override)
-    xdg = os.environ.get("XDG_DATA_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
-    return base / "telegram-monitor" / "db.sqlite"
+    xdg = os.environ.get(_XDG_DATA_HOME_ENV_VAR)
+    base = Path(xdg) if xdg else _DEFAULT_XDG_DATA_HOME
+    return base / _APP_DATA_DIRNAME / _DB_FILENAME
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path, isolation_level=None)
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA synchronous=NORMAL")
-    connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute(_PRAGMA_JOURNAL_MODE_WAL)
+    connection.execute(_PRAGMA_SYNCHRONOUS_NORMAL)
+    connection.execute(_PRAGMA_FOREIGN_KEYS_ON)
     return connection
 
 
 def migrate(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS schema_version ("
-        "  version INTEGER PRIMARY KEY,"
-        "  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
-        ")"
-    )
-    current = connection.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
+    connection.execute(_SCHEMA_VERSION_TABLE_DDL)
+    current = connection.execute(_SELECT_CURRENT_SCHEMA_VERSION).fetchone()[0]
     for version, sql in _MIGRATIONS:
         if version <= current:
             continue
         connection.executescript(sql)
-        connection.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
+        connection.execute(_INSERT_SCHEMA_VERSION, (version,))
