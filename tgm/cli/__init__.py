@@ -1,6 +1,6 @@
 import click
 
-from tgm.cli import auth, chat, digest, highlight
+from tgm.cli import aboutme, auth, chat, criteria, digest, highlight, llm
 from tgm.shell.db import connect, migrate, resolve_db_path
 from tgm.shell.platform import ensure_user_data_dir
 
@@ -28,3 +28,6 @@ cli_main.add_command(auth.auth_group)
 cli_main.add_command(chat.chat_group)
 cli_main.add_command(digest.digest_group)
 cli_main.add_command(highlight.highlight_group)
+cli_main.add_command(criteria.criteria_group)
+cli_main.add_command(aboutme.about_me_group)
+cli_main.add_command(llm.llm_group)
