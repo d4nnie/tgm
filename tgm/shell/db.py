@@ -91,23 +91,23 @@ def resolve_db_path() -> Path:
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, isolation_level=None)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    connection = sqlite3.connect(db_path, isolation_level=None)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA foreign_keys=ON")
+    return connection
 
 
-def migrate(conn: sqlite3.Connection) -> None:
-    conn.execute(
+def migrate(connection: sqlite3.Connection) -> None:
+    connection.execute(
         "CREATE TABLE IF NOT EXISTS schema_version ("
         "  version INTEGER PRIMARY KEY,"
         "  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
         ")"
     )
-    current = conn.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
+    current = connection.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
     for version, sql in MIGRATIONS:
         if version <= current:
             continue
-        conn.executescript(sql)
-        conn.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
+        connection.executescript(sql)
+        connection.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
