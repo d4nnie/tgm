@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Telegram Monitor
+GenericName=Telegram chat monitor
+Comment=Personal desktop monitor of Telegram chats with LLM-powered digests
+Exec=telegram-monitor
+Icon=telegram-monitor
+Terminal=false
+Categories=Network;Utility;
+StartupWMClass=telegram-monitor
