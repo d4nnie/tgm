@@ -19,6 +19,22 @@ packages = ["tgm"]
 
 [dependency-groups]
 dev = ["pre-commit>=4.6.0", "pytest>=9.0.3", "ruff>=0.15.12", "ty>=0.0.34"]
+build = ["pyinstaller>=6.16.0", "taskipy>=1.14.1"]
+
+[tool.taskipy.tasks]
+build-linux = """
+set -e
+rm -rf build dist AppDir telegram-monitor-x86_64.AppImage
+uv sync --frozen --group build
+uv run pyinstaller --noconfirm --clean --name telegram-monitor --onedir entry.py
+mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+cp -r dist/telegram-monitor/. AppDir/usr/bin/
+cp packaging/telegram-monitor.desktop AppDir/usr/share/applications/telegram-monitor.desktop
+cp packaging/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/telegram-monitor.png
+test -x linuxdeploy-x86_64.AppImage || { curl -fsSL -o linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage && chmod +x linuxdeploy-x86_64.AppImage; }
+./linuxdeploy-x86_64.AppImage --appimage-extract-and-run --appdir AppDir --desktop-file AppDir/usr/share/applications/telegram-monitor.desktop --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/telegram-monitor.png --output appimage
+mv Telegram_Monitor-x86_64.AppImage telegram-monitor-x86_64.AppImage
+"""
 
 [tool.ruff]
 target-version = "py311"

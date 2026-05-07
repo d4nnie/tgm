@@ -7,12 +7,6 @@ produces summaries plus highlighted-message digests through a local LLM
 Importance criteria are learnt per-user from manual feedback and chat
 profiles. Anthropic and OpenAI back-ends are pluggable alternatives.
 
-Architectural style: **Functional Core & Imperative Shell** on Python
-3.11+. CLI ([Click](https://click.palletsprojects.com/)) and GUI
-([PySide6](https://doc.qt.io/qtforpython-6/) + qasync) are first-class
-front-ends over a shared shell/core. Storage is a single SQLite file in
-the user data directory.
-
 ## Requirements
 
 - Python 3.11+
@@ -60,34 +54,6 @@ uv run pre-commit run --all-files
 The pre-commit hook runs all three checks on staged Python files and
 blocks the commit on any failure. Versions are pinned through
 `uv.lock`.
-
-## Project layout
-
-```
-tgm/
-  core/        # Functional core: pure functions, no I/O, no async
-    prompts.py
-    tokens.py
-    chunking.py
-    parsing.py
-    scheduling.py
-    llm.py     # LLMProvider Protocol + payload dataclasses
-    types.py
-  shell/       # Imperative shell: I/O, async, side-effects
-    client.py  # Telethon client and event handlers
-    db.py      # SQLite connection, pragmas, migration runner
-    repos.py   # Per-table CRUD over the connection
-    worker.py  # Periodic tick orchestrating core + shell
-    logging.py # stdlib `logging` setup, single root logger `tgm`
-    llm/       # Pluggable LLM providers (Ollama, Anthropic, OpenAI)
-    platform/  # OS-specific bits: locks, ACLs, paths, notifications
-  cli/         # Click-based CLI: auth, chat, digest, watch, ...
-  ui/          # PySide6 GUI: main window, settings, tray, wizard
-  app.py       # Entry point: argv → CLI or GUI
-```
-
-Direction of dependencies: `ui → shell → core`. The core has no
-imports from `shell` or `ui`. The shell never imports from `ui`.
 
 ## Configuration and runtime data
 

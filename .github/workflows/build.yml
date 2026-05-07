@@ -41,26 +41,114 @@ jobs:
         # while the suite is still empty.
         run: uv run pytest || [ $? -eq 5 ]
 
-  # The two build jobs below are stubs. They will gain real PyInstaller
-  # pipelines (linuxdeploy + appimagetool for .AppImage; single-file .exe
-  # for Windows) plus artifact uploads and tag-driven Releases later.
   build-linux:
-    name: Build Linux artefact (stub)
+    name: Build Linux .AppImage
     needs: lint-and-test
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Stub
-        run: echo "TODO — PyInstaller + linuxdeploy + appimagetool to produce .AppImage"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync build dependencies
+        run: uv sync --frozen --group build
+
+      - name: Run PyInstaller
+        run: uv run pyinstaller --noconfirm --clean --name telegram-monitor --onedir entry.py
+
+      - name: Stage AppDir
+        run: |
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp -r dist/telegram-monitor/. AppDir/usr/bin/
+          cp packaging/telegram-monitor.desktop AppDir/usr/share/applications/telegram-monitor.desktop
+          cp packaging/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/telegram-monitor.png
+
+      - name: Fetch linuxdeploy
+        run: |
+          curl -fsSL -o linuxdeploy-x86_64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+
+      - name: Build AppImage
+        run: |
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+            --appdir AppDir \
+            --desktop-file AppDir/usr/share/applications/telegram-monitor.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/telegram-monitor.png \
+            --output appimage
+          mv Telegram_Monitor-x86_64.AppImage telegram-monitor-x86_64.AppImage
+
+      - name: Smoke check (boot + migrate)
+        env:
+          TGM_DB_PATH: ${{ runner.temp }}/smoke.sqlite
+        run: ./telegram-monitor-x86_64.AppImage --appimage-extract-and-run
+
+      - name: Upload AppImage artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-monitor-linux
+          path: telegram-monitor-x86_64.AppImage
 
   build-windows:
-    name: Build Windows artefact (stub)
+    name: Build Windows .exe
     needs: lint-and-test
     runs-on: windows-latest
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Stub
-        shell: bash
-        run: echo "TODO — PyInstaller single-file .exe"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync build dependencies
+        run: uv sync --frozen --group build
+
+      - name: Run PyInstaller
+        run: uv run pyinstaller --noconfirm --clean --name telegram-monitor --onefile entry.py
+
+      - name: Smoke check (boot + migrate)
+        shell: pwsh
+        env:
+          TGM_DB_PATH: ${{ runner.temp }}\smoke.sqlite
+        run: dist\telegram-monitor.exe
+
+      - name: Upload .exe artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-monitor-windows
+          path: dist/telegram-monitor.exe
+
+  release:
+    name: Attach artefacts to GitHub Release
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: telegram-monitor-linux
+          path: artefacts/
+
+      - name: Download Windows artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: telegram-monitor-windows
+          path: artefacts/
+
+      - name: Create / update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artefacts/telegram-monitor-x86_64.AppImage
+            artefacts/telegram-monitor.exe

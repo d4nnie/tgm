@@ -13,6 +13,12 @@ venv/
 # Build artifacts
 build/
 dist/
+AppDir/
+*.spec
+linuxdeploy-x86_64.AppImage
+appimagetool-x86_64.AppImage
+telegram-monitor-x86_64.AppImage
+telegram-monitor.exe
 
 # IDE / editor
 .vscode/*

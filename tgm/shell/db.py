@@ -103,7 +103,6 @@ def resolve_db_path() -> Path:
     override = os.environ.get(_DB_PATH_ENV_VAR)
     if override:
         return Path(override)
-
     return user_data_dir() / _DB_FILENAME
 
 
