@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Project-local secrets and runtime state
+config.toml
+*.session
+*.session-journal
+.env
+.envrc
+app.log
