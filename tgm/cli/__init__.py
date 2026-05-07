@@ -1,6 +1,6 @@
 import click
 
-from tgm.cli import auth
+from tgm.cli import auth, chat
 from tgm.shell.db import connect, migrate, resolve_db_path
 from tgm.shell.platform import ensure_user_data_dir
 
@@ -25,3 +25,4 @@ def _migrate_database() -> None:
 
 
 cli_main.add_command(auth.auth_group)
+cli_main.add_command(chat.chat_group)
