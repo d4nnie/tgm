@@ -2,7 +2,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from tgm.shell.platform import user_data_dir
+from tgm.shell.platform import get_user_data_dir
 
 _DB_PATH_ENV_VAR = "TGM_DB_PATH"
 _DB_FILENAME = "db.sqlite"
@@ -103,7 +103,7 @@ def resolve_db_path() -> Path:
     override = os.environ.get(_DB_PATH_ENV_VAR)
     if override:
         return Path(override)
-    return user_data_dir() / _DB_FILENAME
+    return get_user_data_dir() / _DB_FILENAME
 
 
 def connect(db_path: Path) -> sqlite3.Connection:

@@ -18,12 +18,12 @@ class SingleInstanceError(RuntimeError):
     pass
 
 
-def user_data_dir() -> Path:
+def get_user_data_dir() -> Path:
     return Path(platformdirs.user_data_dir(_APP_NAME, appauthor=False, roaming=True))
 
 
 def ensure_user_data_dir() -> Path:
-    directory = user_data_dir()
+    directory = get_user_data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     restrict_path_access(directory)
 
@@ -92,7 +92,7 @@ def _resolve_posix_lock_path() -> Path:
     runtime_directory = os.environ.get("XDG_RUNTIME_DIR")
     if runtime_directory:
         return Path(runtime_directory) / _LOCK_FILENAME
-    return user_data_dir() / _LOCK_FILENAME
+    return get_user_data_dir() / _LOCK_FILENAME
 
 
 @contextlib.contextmanager

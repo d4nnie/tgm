@@ -46,7 +46,13 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "UP", "B", "SIM", "N"]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "N", "C90", "S101"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
 
 [tool.ty.environment]
 python-version = "3.11"
