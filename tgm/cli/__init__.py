@@ -1,6 +1,6 @@
 import click
 
-from tgm.cli import aboutme, auth, chat, criteria, digest, highlight, llm
+from tgm.cli import aboutme, auth, chat, criteria, digest, gui, highlight, llm, watch
 from tgm.shell.db import connect, migrate, resolve_db_path
 from tgm.shell.platform import ensure_user_data_dir
 
@@ -13,7 +13,7 @@ def cli_main(context: click.Context) -> None:
     _migrate_database()
 
     if context.invoked_subcommand is None:
-        raise click.ClickException("GUI not yet implemented (depends on EPIC-10)")
+        context.invoke(gui.gui_command)
 
 
 def _migrate_database() -> None:
@@ -31,3 +31,5 @@ cli_main.add_command(highlight.highlight_group)
 cli_main.add_command(criteria.criteria_group)
 cli_main.add_command(aboutme.about_me_group)
 cli_main.add_command(llm.llm_group)
+cli_main.add_command(watch.watch_command)
+cli_main.add_command(gui.gui_command)
