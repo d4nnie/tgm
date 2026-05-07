@@ -104,6 +104,7 @@ def resolve_db_path() -> Path:
     override = os.environ.get(_DB_PATH_ENV_VAR)
     if override:
         return Path(override)
+
     xdg = os.environ.get(_XDG_DATA_HOME_ENV_VAR)
     base = Path(xdg) if xdg else _DEFAULT_XDG_DATA_HOME
     return base / _APP_DATA_DIRNAME / _DB_FILENAME
@@ -121,6 +122,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
 def migrate(connection: sqlite3.Connection) -> None:
     connection.execute(_SCHEMA_VERSION_TABLE_DDL)
     current = connection.execute(_SELECT_CURRENT_SCHEMA_VERSION).fetchone()[0]
+
     for version, sql in _MIGRATIONS:
         if version <= current:
             continue
