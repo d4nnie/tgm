@@ -15,7 +15,9 @@ build/
 dist/
 
 # IDE / editor
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 
 # Project-local secrets and runtime state
