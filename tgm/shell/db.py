@@ -2,10 +2,9 @@ import os
 import sqlite3
 from pathlib import Path
 
+from tgm.shell.platform import user_data_dir
+
 _DB_PATH_ENV_VAR = "TGM_DB_PATH"
-_XDG_DATA_HOME_ENV_VAR = "XDG_DATA_HOME"
-_DEFAULT_XDG_DATA_HOME = Path.home() / ".local" / "share"
-_APP_DATA_DIRNAME = "telegram-monitor"
 _DB_FILENAME = "db.sqlite"
 
 _PRAGMA_JOURNAL_MODE_WAL = "PRAGMA journal_mode=WAL"
@@ -105,9 +104,7 @@ def resolve_db_path() -> Path:
     if override:
         return Path(override)
 
-    xdg = os.environ.get(_XDG_DATA_HOME_ENV_VAR)
-    base = Path(xdg) if xdg else _DEFAULT_XDG_DATA_HOME
-    return base / _APP_DATA_DIRNAME / _DB_FILENAME
+    return user_data_dir() / _DB_FILENAME
 
 
 def connect(db_path: Path) -> sqlite3.Connection:

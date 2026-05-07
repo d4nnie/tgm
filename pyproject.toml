@@ -5,7 +5,7 @@ description = "Personal desktop monitor of Telegram chats with LLM-powered diges
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "d4nnie", email = "dshchepetilnikov@gmail.com" }]
-dependencies = []
+dependencies = ["platformdirs>=4.9.6"]
 
 [project.scripts]
 telegram-monitor = "tgm.app:main"
