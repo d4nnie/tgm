@@ -8,6 +8,8 @@ authors = [{ name = "d4nnie", email = "dshchepetilnikov@gmail.com" }]
 dependencies = [
     "click>=8.3.3",
     "platformdirs>=4.9.6",
+    "telethon>=1.43.2",
+    "tomli-w>=1.2.0",
 ]
 
 [project.scripts]
