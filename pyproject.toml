@@ -8,6 +8,9 @@ authors = [
 ]
 dependencies = []
 
+[project.scripts]
+telegram-monitor = "tgm.app:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
