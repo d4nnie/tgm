@@ -2,7 +2,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-INITIAL_DDL = """
+_INITIAL_DDL = """
 CREATE TABLE user_profile (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -75,8 +75,8 @@ CREATE TABLE run_state (
 );
 """
 
-MIGRATIONS: list[tuple[int, str]] = [
-    (1, INITIAL_DDL),
+_MIGRATIONS: list[tuple[int, str]] = [
+    (1, _INITIAL_DDL),
 ]
 
 
@@ -106,7 +106,7 @@ def migrate(connection: sqlite3.Connection) -> None:
         ")"
     )
     current = connection.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
-    for version, sql in MIGRATIONS:
+    for version, sql in _MIGRATIONS:
         if version <= current:
             continue
         connection.executescript(sql)
