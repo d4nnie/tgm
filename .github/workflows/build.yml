@@ -88,7 +88,7 @@ jobs:
           TGM_DB_PATH: ${{ runner.temp }}/smoke.sqlite
         run: ./telegram-monitor-x86_64.AppImage --appimage-extract-and-run
 
-      - name: Upload AppImage artefact
+      - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: telegram-monitor-linux
@@ -120,35 +120,35 @@ jobs:
           TGM_DB_PATH: ${{ runner.temp }}\smoke.sqlite
         run: dist\telegram-monitor.exe
 
-      - name: Upload .exe artefact
+      - name: Upload .exe artifact
         uses: actions/upload-artifact@v4
         with:
           name: telegram-monitor-windows
           path: dist/telegram-monitor.exe
 
   release:
-    name: Attach artefacts to GitHub Release
+    name: Attach artifacts to GitHub Release
     needs: [build-linux, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download Linux artefact
+      - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
           name: telegram-monitor-linux
-          path: artefacts/
+          path: artifacts/
 
-      - name: Download Windows artefact
+      - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: telegram-monitor-windows
-          path: artefacts/
+          path: artifacts/
 
       - name: Create / update Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artefacts/telegram-monitor-x86_64.AppImage
-            artefacts/telegram-monitor.exe
+            artifacts/telegram-monitor-x86_64.AppImage
+            artifacts/telegram-monitor.exe
