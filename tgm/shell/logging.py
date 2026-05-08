@@ -52,7 +52,7 @@ _RESERVED_LOG_RECORD_ATTRIBUTES = frozenset(
 )
 
 
-class PIIRedactionFilter(logging.Filter):
+class PiiRedactionFilter(logging.Filter):
     def __init__(self, redact: bool) -> None:
         super().__init__()
         self.redact = redact
@@ -81,7 +81,7 @@ class KeyValueFormatter(logging.Formatter):
 
 def setup_logging(user_data_dir: Path, *, debug_pii: bool = False) -> None:
     formatter = KeyValueFormatter()
-    pii_filter = PIIRedactionFilter(redact=not debug_pii)
+    pii_filter = PiiRedactionFilter(redact=not debug_pii)
 
     handlers = [
         _build_rotating_file_handler(user_data_dir / _LOG_FILENAME, formatter, pii_filter),
