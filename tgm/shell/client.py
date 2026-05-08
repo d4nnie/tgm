@@ -39,6 +39,7 @@ from tgm.core.auth import (
     create_initial_state,
     decide_next_action,
 )
+from tgm.core.errors import SessionExpiredError, StatusCallback
 from tgm.core.parsing import (
     build_chat_dialog_from_telethon,
     build_edit_payload_from_telethon,
@@ -60,8 +61,10 @@ from tgm.shell.repos import (
     list_monitored_chat_ids,
     update_message_edit,
 )
+from tgm.shell.retry import with_telethon_guard
 
 _SESSION_BASENAME = "session"
+_SESSION_EXPIRED_HANDLER_MESSAGE = "Session expired — re-run `tgm auth login`"
 
 _CALLBACK_ACTION_TYPES: tuple[type, ...] = (
     RequestApiCredentials,
@@ -86,7 +89,7 @@ class LoginCallbacks:
     request_password: Callable[[], Awaitable[str]]
 
 
-async def login(callbacks: LoginCallbacks) -> TelegramClient:
+async def login(callbacks: LoginCallbacks, status_callback: StatusCallback) -> TelegramClient:
     state = create_initial_state()
     client: TelegramClient | None = None
 
@@ -98,19 +101,20 @@ async def login(callbacks: LoginCallbacks) -> TelegramClient:
                 raise AuthorizationFlowError("login completed without a connected Telethon client")
             return client
 
-        client, event = await _execute_action(action, callbacks, client)
+        client, event = await _execute_action(action, callbacks, status_callback, client)
         state = apply_event(state, event)
 
 
 async def _execute_action(
     action: Action,
     callbacks: LoginCallbacks,
+    status_callback: StatusCallback,
     client: TelegramClient | None,
 ) -> tuple[TelegramClient | None, Event]:
     if isinstance(action, _CALLBACK_ACTION_TYPES):
         return client, await _execute_callback_action(action, callbacks)
     if isinstance(action, _TELETHON_ACTION_TYPES):
-        return await _execute_telethon_action(action, client)
+        return await _execute_telethon_action(action, status_callback, client)
     return client, _execute_local_action(action)
 
 
@@ -129,41 +133,47 @@ async def _execute_callback_action(action: Action, callbacks: LoginCallbacks) ->
     raise AuthorizationFlowError(f"unexpected callback action: {action!r}")
 
 
-async def _execute_telethon_action(action: Action, client: TelegramClient | None) -> tuple[TelegramClient, Event]:
+async def _execute_telethon_action(
+    action: Action, status_callback: StatusCallback, client: TelegramClient | None
+) -> tuple[TelegramClient, Event]:
     if isinstance(action, CheckAuthorization):
-        return await _open_client_and_check_authorization(action.credentials)
+        return await _open_client_and_check_authorization(action.credentials, status_callback)
 
     if client is None:
         raise AuthorizationFlowError(f"telethon action {type(action).__name__} requires a connected client")
-    return await _execute_authenticated_action(action, client)
+    return await _execute_authenticated_action(action, client, status_callback)
 
 
 async def _open_client_and_check_authorization(
-    credentials: TelegramCredentials,
+    credentials: TelegramCredentials, status_callback: StatusCallback
 ) -> tuple[TelegramClient, Event]:
     client = TelegramClient(_evaluate_telethon_session_argument(), credentials.api_id, credentials.api_hash)
-    await client.connect()
-    authorized = await client.is_user_authorized()
+    await with_telethon_guard(lambda: client.connect(), status_callback)
+    authorized = await with_telethon_guard(lambda: client.is_user_authorized(), status_callback)
     return client, AuthorizationChecked(authorized=authorized)
 
 
-async def _execute_authenticated_action(action: Action, client: TelegramClient) -> tuple[TelegramClient, Event]:
+async def _execute_authenticated_action(
+    action: Action, client: TelegramClient, status_callback: StatusCallback
+) -> tuple[TelegramClient, Event]:
     match action:
         case RequestCode(phone):
-            await client.send_code_request(phone)
+            await with_telethon_guard(lambda: client.send_code_request(phone), status_callback)
             return client, CodeRequested()
         case SignInWithCode(phone, code):
-            password_required = await _try_sign_in_with_code(client, phone, code)
+            password_required = await _try_sign_in_with_code(client, phone, code, status_callback)
             return client, SignInCompleted(password_required=password_required)
         case SignInWithPassword(password):
-            await client.sign_in(password=password)
+            await with_telethon_guard(lambda: client.sign_in(password=password), status_callback)
             return client, PasswordSignInCompleted()
     raise AuthorizationFlowError(f"unexpected authenticated action: {action!r}")
 
 
-async def _try_sign_in_with_code(client: TelegramClient, phone: str, code: str) -> bool:
+async def _try_sign_in_with_code(
+    client: TelegramClient, phone: str, code: str, status_callback: StatusCallback
+) -> bool:
     try:
-        await client.sign_in(phone, code)
+        await with_telethon_guard(lambda: client.sign_in(phone, code), status_callback)
         return False
     except SessionPasswordNeededError:
         return True
@@ -185,22 +195,29 @@ def _execute_local_action(action: Action) -> Event:
     raise AuthorizationFlowError(f"unexpected local action: {action!r}")
 
 
-def subscribe_to_message_events(client: TelegramClient, session: Session) -> None:
+def subscribe_to_message_events(client: TelegramClient, session: Session, status_callback: StatusCallback) -> None:
     @client.on(events.NewMessage())
     async def _on_new_message(event: events.NewMessage.Event) -> None:
-        await _handle_new_message(session, event)
+        await _handle_new_message(session, event, status_callback)
 
     @client.on(events.MessageEdited())
     async def _on_message_edited(event: events.MessageEdited.Event) -> None:
-        await _handle_message_edited(session, event)
+        await _handle_message_edited(session, event, status_callback)
 
 
-async def _handle_new_message(session: Session, event: events.NewMessage.Event) -> None:
+async def _handle_new_message(
+    session: Session, event: events.NewMessage.Event, status_callback: StatusCallback
+) -> None:
     chat_id = event.chat_id
     if chat_id is None or not is_chat_monitored(session, int(chat_id)):
         return
 
-    sender = await event.get_sender()
+    try:
+        sender = await with_telethon_guard(lambda: event.get_sender(), status_callback)
+    except SessionExpiredError:
+        status_callback(_SESSION_EXPIRED_HANDLER_MESSAGE)
+        return
+
     message = build_message_from_telethon(
         chat_id=int(chat_id),
         telethon_message=event.message,
@@ -212,7 +229,9 @@ async def _handle_new_message(session: Session, event: events.NewMessage.Event) 
     session.commit()
 
 
-async def _handle_message_edited(session: Session, event: events.MessageEdited.Event) -> None:
+async def _handle_message_edited(
+    session: Session, event: events.MessageEdited.Event, status_callback: StatusCallback
+) -> None:
     chat_id = event.chat_id
     if chat_id is None or not is_chat_monitored(session, int(chat_id)):
         return
@@ -241,18 +260,20 @@ async def fetch_dialogs(client: TelegramClient) -> list[ChatDialog]:
     return dialogs
 
 
-async def backfill_messages(client: TelegramClient, session: Session) -> None:
+async def backfill_messages(client: TelegramClient, session: Session, status_callback: StatusCallback) -> None:
     for chat_id in list_monitored_chat_ids(session):
-        await _backfill_chat(client, session, chat_id)
+        await _backfill_chat(client, session, chat_id, status_callback)
 
 
-async def _backfill_chat(client: TelegramClient, session: Session, chat_id: int) -> None:
+async def _backfill_chat(
+    client: TelegramClient, session: Session, chat_id: int, status_callback: StatusCallback
+) -> None:
     state = get_run_state(session, get_chat_scope(chat_id))
     if state is None or state.last_msg_id is None:
         return
 
     async for telethon_message in client.iter_messages(chat_id, min_id=state.last_msg_id):
-        sender = await telethon_message.get_sender()
+        sender = await with_telethon_guard(lambda message=telethon_message: message.get_sender(), status_callback)
         message = build_message_from_telethon(
             chat_id=chat_id,
             telethon_message=telethon_message,

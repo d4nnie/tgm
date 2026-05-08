@@ -3,7 +3,12 @@ import functools
 
 import click
 
+from tgm.core.errors import StatusCallback
 from tgm.shell.client import LoginCallbacks
+
+
+def make_click_status_callback() -> StatusCallback:
+    return lambda message: click.echo(message, err=True)
 
 
 def make_click_login_callbacks() -> LoginCallbacks:

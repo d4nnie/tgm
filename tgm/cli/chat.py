@@ -1,16 +1,18 @@
-import asyncio
 import json
 from datetime import UTC, datetime
 
 import click
 
-from tgm.cli.prompts import make_click_login_callbacks
+from tgm.cli.auth import run_with_session_guard
+from tgm.cli.prompts import make_click_login_callbacks, make_click_status_callback
 from tgm.cli.stubs import stub_not_implemented
+from tgm.core.errors import StatusCallback
 from tgm.core.parsing import classify_telethon_entity, extract_entity_display_name
 from tgm.core.types import Chat
 from tgm.shell.client import fetch_dialogs, login
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.repos import is_chat_monitored, mark_chat_unmonitored, upsert_chat
+from tgm.shell.retry import with_telethon_guard
 
 
 @click.group(name="chat")
@@ -22,7 +24,7 @@ def chat_group() -> None:
 @click.pass_obj
 def chat_list(handle: DatabaseHandle) -> None:
     """Print all dialogs in the account as JSON."""
-    asyncio.run(_run_chat_list(handle))
+    run_with_session_guard(_run_chat_list(handle))
 
 
 @chat_group.command(name="add")
@@ -31,7 +33,7 @@ def chat_list(handle: DatabaseHandle) -> None:
 @click.pass_obj
 def chat_add(handle: DatabaseHandle, chat_id: int, period: int) -> None:
     """Add a chat to the whitelist (no backfill)."""
-    asyncio.run(_run_chat_add(handle, chat_id, period))
+    run_with_session_guard(_run_chat_add(handle, chat_id, period))
 
 
 @chat_group.command(name="remove")
@@ -55,7 +57,8 @@ def chat_profile(chat_id: int, description: str | None, period: int | None) -> N
 
 
 async def _run_chat_list(handle: DatabaseHandle) -> None:
-    client = await login(make_click_login_callbacks())
+    status_callback = make_click_status_callback()
+    client = await login(make_click_login_callbacks(), status_callback)
     try:
         dialogs = await fetch_dialogs(client)
         with handle.session_factory() as session:
@@ -74,9 +77,10 @@ async def _run_chat_list(handle: DatabaseHandle) -> None:
 
 
 async def _run_chat_add(handle: DatabaseHandle, chat_id: int, period_n_minutes: int) -> None:
-    client = await login(make_click_login_callbacks())
+    status_callback = make_click_status_callback()
+    client = await login(make_click_login_callbacks(), status_callback)
     try:
-        entity = await client.get_entity(chat_id)
+        entity = await _fetch_entity(client, chat_id, status_callback)
         chat = Chat(
             chat_id=chat_id,
             title=extract_entity_display_name(entity),
@@ -102,3 +106,10 @@ async def _run_chat_add(handle: DatabaseHandle, chat_id: int, period_n_minutes: 
         )
     finally:
         await client.disconnect()
+
+
+async def _fetch_entity(client: object, chat_id: int, status_callback: StatusCallback) -> object:
+    return await with_telethon_guard(
+        lambda: client.get_entity(chat_id),  # ty: ignore[unresolved-attribute]
+        status_callback,
+    )

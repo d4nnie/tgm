@@ -1,11 +1,16 @@
 import asyncio
+import sys
+from collections.abc import Coroutine
+from typing import Any
 
 import click
 from telethon.tl.types import User
 
-from tgm.cli.prompts import make_click_login_callbacks
+from tgm.cli.prompts import make_click_login_callbacks, make_click_status_callback
 from tgm.cli.stubs import stub_not_implemented
+from tgm.core.errors import SessionExpiredError
 from tgm.shell.client import login
+from tgm.shell.retry import with_telethon_guard
 
 
 @click.group(name="auth")
@@ -16,7 +21,7 @@ def auth_group() -> None:
 @auth_group.command(name="login")
 def auth_login() -> None:
     """Interactive login: api_id / api_hash / phone / SMS code / 2FA."""
-    asyncio.run(_run_login())
+    run_with_session_guard(_run_login())
 
 
 @auth_group.command(name="status")
@@ -25,10 +30,19 @@ def auth_status() -> None:
     stub_not_implemented("EPIC-05 (LLM provider) + EPIC-07 (worker)")
 
 
-async def _run_login() -> None:
-    client = await login(make_click_login_callbacks())
+def run_with_session_guard(coroutine: Coroutine[Any, Any, None]) -> None:
     try:
-        me = await client.get_me()
+        asyncio.run(coroutine)
+    except SessionExpiredError as error:
+        click.echo(f"Error: {error}", err=True)
+        sys.exit(2)
+
+
+async def _run_login() -> None:
+    status_callback = make_click_status_callback()
+    client = await login(make_click_login_callbacks(), status_callback)
+    try:
+        me = await with_telethon_guard(lambda: client.get_me(), status_callback)
         if isinstance(me, User):
             click.echo(f"Logged in as {me.first_name} (id={me.id})")
         else:

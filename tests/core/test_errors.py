@@ -4,9 +4,14 @@ from tgm.core.errors import (
     FloodWaitOutcome,
     NetworkError,
     NetworkRetryOutcome,
+    RaiseNetworkAction,
+    RaiseSessionExpiredAction,
+    ReraiseAction,
+    RetrySleepAction,
     SessionExpiredError,
     SessionExpiredOutcome,
     classify_telethon_error,
+    decide_retry_action,
 )
 
 
@@ -99,3 +104,27 @@ def test_session_expired_error_is_runtime_error():
 
 def test_network_error_is_runtime_error():
     assert issubclass(NetworkError, RuntimeError)
+
+
+def test_decide_retry_action_sleeps_for_flood_wait():
+    action = decide_retry_action(_FakeFloodWaitError(seconds=30), attempt=0)
+
+    assert action == RetrySleepAction(seconds=30, message="Throttled by Telegram, retry in 30s")
+
+
+def test_decide_retry_action_sleeps_for_network_retry():
+    action = decide_retry_action(ConnectionError("flap"), attempt=2)
+
+    assert action == RetrySleepAction(seconds=4, message="Network error, retry in 4s (attempt 3/5)")
+
+
+def test_decide_retry_action_raises_session_expired_for_auth_key():
+    assert decide_retry_action(_FakeAuthKeyError(), attempt=0) == RaiseSessionExpiredAction()
+
+
+def test_decide_retry_action_raises_network_after_attempts_exhausted():
+    assert decide_retry_action(ConnectionError(), attempt=5) == RaiseNetworkAction()
+
+
+def test_decide_retry_action_reraises_unknown_error():
+    assert decide_retry_action(ValueError("boom"), attempt=0) == ReraiseAction()

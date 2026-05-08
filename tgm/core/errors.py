@@ -43,6 +43,30 @@ class NetworkRetryOutcome:
 ErrorOutcome = FloodWaitOutcome | SessionExpiredOutcome | NetworkRetryOutcome
 
 
+@dataclass(frozen=True)
+class RetrySleepAction:
+    seconds: int
+    message: str
+
+
+@dataclass(frozen=True)
+class RaiseSessionExpiredAction:
+    pass
+
+
+@dataclass(frozen=True)
+class RaiseNetworkAction:
+    pass
+
+
+@dataclass(frozen=True)
+class ReraiseAction:
+    pass
+
+
+RetryAction = RetrySleepAction | RaiseSessionExpiredAction | RaiseNetworkAction | ReraiseAction
+
+
 def classify_telethon_error(error: BaseException, attempt: int) -> ErrorOutcome | None:
     name = type(error).__name__
 
@@ -59,3 +83,25 @@ def classify_telethon_error(error: BaseException, attempt: int) -> ErrorOutcome 
         return NetworkRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
 
     return None
+
+
+def decide_retry_action(error: BaseException, attempt: int) -> RetryAction:
+    outcome = classify_telethon_error(error, attempt)
+
+    match outcome:
+        case FloodWaitOutcome(wait_seconds):
+            return RetrySleepAction(
+                seconds=wait_seconds,
+                message=f"Throttled by Telegram, retry in {wait_seconds}s",
+            )
+        case NetworkRetryOutcome(wait_seconds, attempt_value):
+            return RetrySleepAction(
+                seconds=wait_seconds,
+                message=f"Network error, retry in {wait_seconds}s (attempt {attempt_value + 1}/{_MAX_NETWORK_RETRIES})",
+            )
+        case SessionExpiredOutcome():
+            return RaiseSessionExpiredAction()
+        case None:
+            if isinstance(error, _NETWORK_ERROR_TYPES):
+                return RaiseNetworkAction()
+            return ReraiseAction()
