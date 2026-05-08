@@ -3,7 +3,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
-from tgm.core.types import Chat, ChatType, Message
+from tgm.core.types import Chat, ChatType, Message, RunState
+
+_GLOBAL_SCOPE = "global"
+
+
+def chat_scope(chat_id: int) -> str:
+    return f"chat:{chat_id}"
+
+
+def global_scope() -> str:
+    return _GLOBAL_SCOPE
 
 
 @dataclass(frozen=True)
@@ -123,4 +133,12 @@ def row_to_message(row: Any) -> Message:
         reply_to_msg_id=row.reply_to_msg_id,
         edited_at=row.edited_at,
         raw_json=str(row.raw_json or ""),
+    )
+
+
+def row_to_run_state(row: Any) -> RunState:
+    return RunState(
+        scope=str(row.scope),
+        last_run_at=row.last_run_at,
+        last_msg_id=int(row.last_msg_id) if row.last_msg_id is not None else None,
     )

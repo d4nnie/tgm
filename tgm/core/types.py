@@ -33,3 +33,10 @@ class Message:
     reply_to_msg_id: int | None
     edited_at: datetime | None
     raw_json: str
+
+
+@dataclass(frozen=True)
+class RunState:
+    scope: str
+    last_run_at: datetime | None
+    last_msg_id: int | None
