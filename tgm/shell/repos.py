@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from tgm.core.parsing import convert_row_to_chat, convert_row_to_run_state
 from tgm.core.types import Chat, Message, RunState
-from tgm.shell.orm import ChatRow, MessageRow, RunStateRow
+from tgm.shell.orm import ChatRow, MessageRow, RunStateRow, UserProfileRow
+
+_ABOUT_ME_KEY = "about_me"
 
 
 def insert_message(session: Session, message: Message) -> None:
@@ -102,5 +104,18 @@ def upsert_run_state(session: Session, state: RunState) -> None:
             index_elements=["scope"],
             set_={"last_run_at": state.last_run_at, "last_msg_id": state.last_message_id},
         )
+    )
+    session.execute(statement)
+
+
+def get_user_profile_about_me(session: Session) -> str | None:
+    return session.execute(select(UserProfileRow.value).where(UserProfileRow.key == _ABOUT_ME_KEY)).scalar_one_or_none()
+
+
+def upsert_user_profile_about_me(session: Session, text: str) -> None:
+    statement = (
+        sqlite_insert(UserProfileRow)
+        .values(key=_ABOUT_ME_KEY, value=text)
+        .on_conflict_do_update(index_elements=["key"], set_={"value": text})
     )
     session.execute(statement)
