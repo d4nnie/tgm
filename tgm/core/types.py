@@ -57,3 +57,23 @@ class LlmProviderConfig:
     model: str
     api_key_env: str | None = None
     options: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class PerChatHighlightPart:
+    message_id: int
+    why: str
+
+
+@dataclass(frozen=True)
+class PerChatDigestPart:
+    chat_id: int
+    title: str
+    summary: str
+    highlights: list[PerChatHighlightPart]
+
+
+@dataclass(frozen=True)
+class FeedbackSample:
+    user_comment: str | None
+    messages: list[Message]
