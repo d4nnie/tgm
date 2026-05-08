@@ -59,7 +59,10 @@ jobs:
         run: uv sync --frozen --group build
 
       - name: Run PyInstaller
-        run: uv run pyinstaller --noconfirm --clean --name telegram-monitor --onedir entry.py
+        run: |
+          uv run pyinstaller --noconfirm --clean --name telegram-monitor --onedir \
+            --collect-data tgm.shell.db.migrations \
+            entry.py
 
       - name: Stage AppDir
         run: |
@@ -112,7 +115,10 @@ jobs:
         run: uv sync --frozen --group build
 
       - name: Run PyInstaller
-        run: uv run pyinstaller --noconfirm --clean --name telegram-monitor --onefile entry.py
+        run: |
+          uv run pyinstaller --noconfirm --clean --name telegram-monitor --onefile `
+            --collect-data tgm.shell.db.migrations `
+            entry.py
 
       - name: Smoke check (boot + migrate)
         shell: pwsh
