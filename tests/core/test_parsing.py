@@ -5,6 +5,7 @@ import pytest
 
 from tgm.core.parsing import (
     MessageEditPayload,
+    build_chat_dialog_from_telethon,
     build_edit_payload_from_telethon,
     build_message_from_telethon,
     classify_telethon_entity,
@@ -17,7 +18,7 @@ from tgm.core.parsing import (
     get_global_scope,
     serialize_telethon_message,
 )
-from tgm.core.types import Chat, Message, RunState
+from tgm.core.types import Chat, ChatDialog, Message, RunState
 
 
 def test_extract_sender_name_returns_none_for_none():
@@ -393,3 +394,46 @@ def test_row_to_run_state_handles_null_cursor():
 
     assert result.last_run_at is None
     assert result.last_msg_id is None
+
+
+def test_build_chat_dialog_for_user():
+    dialog = SimpleNamespace(
+        id=12345,
+        entity=SimpleNamespace(id=12345, first_name="Alice", last_name="Smith"),
+    )
+
+    assert build_chat_dialog_from_telethon(dialog) == ChatDialog(chat_id=12345, title="Alice Smith", chat_type="user")
+
+
+def test_build_chat_dialog_for_supergroup():
+    dialog = SimpleNamespace(
+        id=-1001234567890,
+        entity=SimpleNamespace(id=1234567890, megagroup=True, title="Project Channel"),
+    )
+
+    assert build_chat_dialog_from_telethon(dialog) == ChatDialog(
+        chat_id=-1001234567890, title="Project Channel", chat_type="supergroup"
+    )
+
+
+def test_build_chat_dialog_for_broadcast_channel():
+    dialog = SimpleNamespace(
+        id=-1009876543210,
+        entity=SimpleNamespace(id=9876543210, megagroup=False, title="News"),
+    )
+
+    assert build_chat_dialog_from_telethon(dialog) == ChatDialog(
+        chat_id=-1009876543210, title="News", chat_type="channel"
+    )
+
+
+def test_build_chat_dialog_for_legacy_group():
+    dialog = SimpleNamespace(id=-42, entity=SimpleNamespace(id=42, title="Old Group"))
+
+    assert build_chat_dialog_from_telethon(dialog) == ChatDialog(chat_id=-42, title="Old Group", chat_type="group")
+
+
+def test_build_chat_dialog_falls_back_to_id_when_title_missing():
+    dialog = SimpleNamespace(id=99, entity=SimpleNamespace(id=99, first_name=None))
+
+    assert build_chat_dialog_from_telethon(dialog).title == "id=99"

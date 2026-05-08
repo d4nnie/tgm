@@ -40,12 +40,13 @@ from tgm.core.auth import (
     decide_next_action,
 )
 from tgm.core.parsing import (
+    build_chat_dialog_from_telethon,
     build_edit_payload_from_telethon,
     build_message_from_telethon,
     get_chat_scope,
     serialize_telethon_message,
 )
-from tgm.core.types import TelegramCredentials
+from tgm.core.types import ChatDialog, TelegramCredentials
 from tgm.shell.config import (
     load_telegram_credentials,
     save_telegram_credentials,
@@ -231,6 +232,13 @@ async def _handle_message_edited(session: Session, event: events.MessageEdited.E
         raw_json=payload.raw_json,
     )
     session.commit()
+
+
+async def fetch_dialogs(client: TelegramClient) -> list[ChatDialog]:
+    dialogs: list[ChatDialog] = []
+    async for dialog in client.iter_dialogs():
+        dialogs.append(build_chat_dialog_from_telethon(dialog))
+    return dialogs
 
 
 async def backfill_messages(client: TelegramClient, session: Session) -> None:

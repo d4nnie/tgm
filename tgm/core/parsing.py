@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
-from tgm.core.types import Chat, ChatType, Message, RunState
+from tgm.core.types import Chat, ChatDialog, ChatType, Message, RunState
 
 _GLOBAL_SCOPE = "global"
 
@@ -141,4 +141,12 @@ def convert_row_to_run_state(row: Any) -> RunState:
         scope=str(row.scope),
         last_run_at=row.last_run_at,
         last_msg_id=int(row.last_msg_id) if row.last_msg_id is not None else None,
+    )
+
+
+def build_chat_dialog_from_telethon(dialog: Any) -> ChatDialog:
+    return ChatDialog(
+        chat_id=int(dialog.id),
+        title=extract_entity_display_name(dialog.entity),
+        chat_type=classify_telethon_entity(dialog.entity),
     )

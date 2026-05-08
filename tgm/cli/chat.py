@@ -8,7 +8,7 @@ from tgm.cli.prompts import make_click_login_callbacks
 from tgm.cli.stubs import stub_not_implemented
 from tgm.core.parsing import classify_telethon_entity, extract_entity_display_name
 from tgm.core.types import Chat
-from tgm.shell.client import login
+from tgm.shell.client import fetch_dialogs, login
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.repos import is_chat_monitored, mark_chat_unmonitored, upsert_chat
 
@@ -57,19 +57,18 @@ def chat_profile(chat_id: int, description: str | None, period: int | None) -> N
 async def _run_chat_list(handle: DatabaseHandle) -> None:
     client = await login(make_click_login_callbacks())
     try:
+        dialogs = await fetch_dialogs(client)
         with handle.session_factory() as session:
-            dialogs_payload = []
-            async for dialog in client.iter_dialogs():
-                dialog_id = int(dialog.id)
-                dialogs_payload.append(
-                    {
-                        "chat_id": dialog_id,
-                        "title": extract_entity_display_name(dialog.entity),
-                        "type": classify_telethon_entity(dialog.entity),
-                        "is_monitored": is_chat_monitored(session, dialog_id),
-                    }
-                )
-        click.echo(json.dumps(dialogs_payload, ensure_ascii=False, indent=2))
+            payload = [
+                {
+                    "chat_id": dialog.chat_id,
+                    "title": dialog.title,
+                    "type": dialog.chat_type,
+                    "is_monitored": is_chat_monitored(session, dialog.chat_id),
+                }
+                for dialog in dialogs
+            ]
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2))
     finally:
         await client.disconnect()
 

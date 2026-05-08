@@ -40,3 +40,10 @@ class RunState:
     scope: str
     last_run_at: datetime | None
     last_msg_id: int | None
+
+
+@dataclass(frozen=True)
+class ChatDialog:
+    chat_id: int
+    title: str
+    chat_type: ChatType
