@@ -7,12 +7,14 @@ from typing import Any
 import tomli_w
 
 from tgm.core.config import (
+    DEFAULT_LLM_CONFIG_SECTION,
+    extract_llm_provider_config_from_config,
     extract_telegram_credentials_from_config,
     extract_telegram_credentials_from_env,
     merge_telegram_credentials,
     merge_telegram_phone,
 )
-from tgm.core.types import TelegramCredentials
+from tgm.core.types import LlmProviderConfig, TelegramCredentials
 from tgm.shell.platform import get_user_data_dir
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,21 @@ def save_telegram_phone(phone: str) -> None:
     new_config = merge_telegram_phone(_read_config(), phone)
     _write_config_atomic(new_config)
     logger.info("Saved Telegram phone to config")
+
+
+def load_llm_provider_config() -> LlmProviderConfig:
+    config = _read_config()
+    if "llm" not in config:
+        config = _ensure_default_llm_section(config)
+    return extract_llm_provider_config_from_config(config)
+
+
+def _ensure_default_llm_section(config: dict[str, Any]) -> dict[str, Any]:
+    new_config = dict(config)
+    new_config["llm"] = dict(DEFAULT_LLM_CONFIG_SECTION)
+    _write_config_atomic(new_config)
+    logger.info("Wrote default [llm] section to config")
+    return new_config
 
 
 def _read_config() -> dict[str, Any]:
