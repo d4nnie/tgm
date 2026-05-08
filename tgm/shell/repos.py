@@ -4,7 +4,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from tgm.core.parsing import row_to_chat, row_to_run_state
+from tgm.core.parsing import convert_row_to_chat, convert_row_to_run_state
 from tgm.core.types import Chat, Message, RunState
 from tgm.shell.orm import ChatRow, MessageRow, RunStateRow
 
@@ -84,14 +84,14 @@ def list_monitored_chat_ids(session: Session) -> list[int]:
 
 def list_chats(session: Session) -> list[Chat]:
     rows = session.execute(select(ChatRow).order_by(ChatRow.title)).scalars().all()
-    return [row_to_chat(row) for row in rows]
+    return [convert_row_to_chat(row) for row in rows]
 
 
 def get_run_state(session: Session, scope: str) -> RunState | None:
     row = session.execute(select(RunStateRow).where(RunStateRow.scope == scope)).scalar_one_or_none()
     if row is None:
         return None
-    return row_to_run_state(row)
+    return convert_row_to_run_state(row)
 
 
 def upsert_run_state(session: Session, state: RunState) -> None:

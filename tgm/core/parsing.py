@@ -8,11 +8,11 @@ from tgm.core.types import Chat, ChatType, Message, RunState
 _GLOBAL_SCOPE = "global"
 
 
-def chat_scope(chat_id: int) -> str:
+def get_chat_scope(chat_id: int) -> str:
     return f"chat:{chat_id}"
 
 
-def global_scope() -> str:
+def get_global_scope() -> str:
     return _GLOBAL_SCOPE
 
 
@@ -111,7 +111,7 @@ def build_edit_payload_from_telethon(
     )
 
 
-def row_to_chat(row: Any) -> Chat:
+def convert_row_to_chat(row: Any) -> Chat:
     return Chat(
         chat_id=int(row.chat_id),
         title=str(row.title),
@@ -122,7 +122,7 @@ def row_to_chat(row: Any) -> Chat:
     )
 
 
-def row_to_message(row: Any) -> Message:
+def convert_row_to_message(row: Any) -> Message:
     return Message(
         chat_id=int(row.chat_id),
         msg_id=int(row.msg_id),
@@ -136,7 +136,7 @@ def row_to_message(row: Any) -> Message:
     )
 
 
-def row_to_run_state(row: Any) -> RunState:
+def convert_row_to_run_state(row: Any) -> RunState:
     return RunState(
         scope=str(row.scope),
         last_run_at=row.last_run_at,

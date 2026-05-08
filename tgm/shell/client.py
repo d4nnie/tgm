@@ -42,6 +42,7 @@ from tgm.core.auth import (
 from tgm.core.parsing import (
     build_edit_payload_from_telethon,
     build_message_from_telethon,
+    get_chat_scope,
     serialize_telethon_message,
 )
 from tgm.core.types import TelegramCredentials
@@ -52,8 +53,10 @@ from tgm.shell.config import (
 )
 from tgm.shell.platform import get_user_data_dir, restrict_path_access
 from tgm.shell.repos import (
+    get_run_state,
     insert_message,
     is_chat_monitored,
+    list_monitored_chat_ids,
     update_message_edit,
 )
 
@@ -227,6 +230,30 @@ async def _handle_message_edited(session: Session, event: events.MessageEdited.E
         edited_at=payload.edited_at,
         raw_json=payload.raw_json,
     )
+    session.commit()
+
+
+async def backfill_messages(client: TelegramClient, session: Session) -> None:
+    for chat_id in list_monitored_chat_ids(session):
+        await _backfill_chat(client, session, chat_id)
+
+
+async def _backfill_chat(client: TelegramClient, session: Session, chat_id: int) -> None:
+    state = get_run_state(session, get_chat_scope(chat_id))
+    if state is None or state.last_msg_id is None:
+        return
+
+    async for telethon_message in client.iter_messages(chat_id, min_id=state.last_msg_id):
+        sender = await telethon_message.get_sender()
+        message = build_message_from_telethon(
+            chat_id=chat_id,
+            telethon_message=telethon_message,
+            sender=sender,
+            raw_json=serialize_telethon_message(telethon_message),
+            fallback_timestamp=datetime.now(UTC),
+        )
+        insert_message(session, message)
+
     session.commit()
 
 

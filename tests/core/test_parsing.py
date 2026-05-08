@@ -7,14 +7,14 @@ from tgm.core.parsing import (
     MessageEditPayload,
     build_edit_payload_from_telethon,
     build_message_from_telethon,
-    chat_scope,
     classify_telethon_entity,
+    convert_row_to_chat,
+    convert_row_to_message,
+    convert_row_to_run_state,
     extract_entity_display_name,
     extract_sender_name,
-    global_scope,
-    row_to_chat,
-    row_to_message,
-    row_to_run_state,
+    get_chat_scope,
+    get_global_scope,
     serialize_telethon_message,
 )
 from tgm.core.types import Chat, Message, RunState
@@ -296,7 +296,7 @@ def test_row_to_chat_maps_all_fields():
         added_at=datetime(2026, 5, 8, tzinfo=UTC),
     )
 
-    result = row_to_chat(row)
+    result = convert_row_to_chat(row)
 
     assert result == Chat(
         chat_id=42,
@@ -313,7 +313,7 @@ def test_row_to_chat_normalizes_truthy_int_to_bool():
         chat_id=1, title="t", chat_type="user", is_monitored=0, period_n_minutes=30, added_at=datetime(2026, 1, 1)
     )
 
-    assert row_to_chat(row).is_monitored is False
+    assert convert_row_to_chat(row).is_monitored is False
 
 
 def test_row_to_message_maps_all_fields():
@@ -329,7 +329,7 @@ def test_row_to_message_maps_all_fields():
         raw_json='{"id":7}',
     )
 
-    result = row_to_message(row)
+    result = convert_row_to_message(row)
 
     assert result == Message(
         chat_id=42,
@@ -357,19 +357,19 @@ def test_row_to_message_treats_null_raw_json_as_empty_string():
         raw_json=None,
     )
 
-    assert row_to_message(row).raw_json == ""
+    assert convert_row_to_message(row).raw_json == ""
 
 
 def test_chat_scope_formats_chat_id():
-    assert chat_scope(42) == "chat:42"
+    assert get_chat_scope(42) == "chat:42"
 
 
 def test_chat_scope_handles_negative_id():
-    assert chat_scope(-1001234567890) == "chat:-1001234567890"
+    assert get_chat_scope(-1001234567890) == "chat:-1001234567890"
 
 
 def test_global_scope_constant():
-    assert global_scope() == "global"
+    assert get_global_scope() == "global"
 
 
 def test_row_to_run_state_with_full_cursor():
@@ -379,7 +379,7 @@ def test_row_to_run_state_with_full_cursor():
         last_msg_id=12345,
     )
 
-    assert row_to_run_state(row) == RunState(
+    assert convert_row_to_run_state(row) == RunState(
         scope="chat:42",
         last_run_at=datetime(2026, 5, 8, tzinfo=UTC),
         last_msg_id=12345,
@@ -389,7 +389,7 @@ def test_row_to_run_state_with_full_cursor():
 def test_row_to_run_state_handles_null_cursor():
     row = SimpleNamespace(scope="chat:1", last_run_at=None, last_msg_id=None)
 
-    result = row_to_run_state(row)
+    result = convert_row_to_run_state(row)
 
     assert result.last_run_at is None
     assert result.last_msg_id is None
