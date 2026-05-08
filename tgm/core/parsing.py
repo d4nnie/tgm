@@ -2,7 +2,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -17,6 +17,7 @@ from tgm.core.types import (
     ChatDialog,
     ChatProfile,
     ChatType,
+    Feedback,
     ImportanceCriteria,
     Message,
     RunState,
@@ -160,6 +161,19 @@ def convert_row_to_run_state(row: Any) -> RunState:
         scope=str(row.scope),
         last_run_at=row.last_run_at,
         last_message_id=int(row.last_message_id) if row.last_message_id is not None else None,
+    )
+
+
+def convert_row_to_feedback(row: Any) -> Feedback:
+    raw_message_ids = json.loads(str(row.message_ids_json or "[]"))
+    return Feedback(
+        id=int(row.id),
+        chat_id=int(row.chat_id),
+        message_ids=[int(value) for value in raw_message_ids],
+        user_comment=row.user_comment,
+        scope=cast(Literal["chat", "global"], row.scope),
+        consumed=bool(row.consumed),
+        marked_at=row.marked_at,
     )
 
 

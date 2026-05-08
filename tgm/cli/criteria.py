@@ -1,10 +1,40 @@
+import asyncio
 import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import cast
 
 import click
+from sqlalchemy.orm import Session
 
-from tgm.cli.stubs import stub_not_implemented
+from tgm.core.parsing import parse_criteria_response
+from tgm.core.prompts import build_criteria_recalc_prompt
+from tgm.core.schemas import CRITERIA_RECALC_RESPONSE_SCHEMA
+from tgm.core.types import Feedback, FeedbackSample
+from tgm.shell.config import load_llm_provider_config
 from tgm.shell.db import DatabaseHandle
-from tgm.shell.repos import get_active_criteria
+from tgm.shell.llm import build_provider
+from tgm.shell.llm.openaicompat import OpenAiCompatibleProvider
+from tgm.shell.repos import (
+    get_active_criteria,
+    get_criteria_by_version,
+    get_messages_by_ids,
+    get_unconsumed_feedback,
+    get_user_profile_about_me,
+    insert_criteria,
+    mark_feedback_consumed,
+)
+
+_RECALC_MAX_INPUT_TOKENS = 16000
+
+
+@dataclass(frozen=True)
+class _RecalcInputs:
+    old_version: int
+    current_text: str
+    samples: list[FeedbackSample]
+    about_me: str
+    consumed_feedback_ids: list[int]
 
 
 @click.group(name="criteria")
@@ -28,9 +58,7 @@ def criteria_show(handle: DatabaseHandle, scope: str) -> None:
                 "scope": criteria.scope,
                 "version": criteria.version,
                 "criteria_text": criteria.criteria_text,
-                "updated_at": criteria.updated_at.isoformat()
-                if hasattr(criteria.updated_at, "isoformat")
-                else str(criteria.updated_at),
+                "updated_at": _format_datetime(criteria.updated_at),
             },
             ensure_ascii=False,
         )
@@ -39,14 +67,122 @@ def criteria_show(handle: DatabaseHandle, scope: str) -> None:
 
 @criteria_group.command(name="recalc")
 @click.option("--scope", type=str, required=True, help="global | chat:<id>.")
-def criteria_recalc(scope: str) -> None:
+@click.pass_obj
+def criteria_recalc(handle: DatabaseHandle, scope: str) -> None:
     """Recalculate criteria from accumulated feedback."""
-    stub_not_implemented("EPIC-08 (feedback)")
+    asyncio.run(_run_recalc(handle, scope))
 
 
 @criteria_group.command(name="rollback")
 @click.option("--scope", type=str, required=True, help="global | chat:<id>.")
 @click.option("--version", type=int, required=True, help="Target version to roll back to.")
-def criteria_rollback(scope: str, version: int) -> None:
-    """Roll back criteria to a specific version."""
-    stub_not_implemented("EPIC-04 (repos)")
+@click.pass_obj
+def criteria_rollback(handle: DatabaseHandle, scope: str, version: int) -> None:
+    """Roll back criteria to a specific version (insert it as the new latest)."""
+    with handle.session_factory() as session:
+        target = get_criteria_by_version(session, scope=scope, version=version)
+        if target is None:
+            raise click.ClickException(f"no version {version} for scope {scope!r}")
+        active = get_active_criteria(session, scope)
+        old_version = active.version if active else None
+        new_version = insert_criteria(session, scope=scope, criteria_text=target.criteria_text, now=datetime.now(UTC))
+        session.commit()
+    click.echo(
+        json.dumps(
+            {
+                "scope": scope,
+                "old_version": old_version,
+                "new_version": new_version,
+                "rolled_back_to": version,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+async def _run_recalc(handle: DatabaseHandle, scope: str) -> None:
+    config = load_llm_provider_config()
+    provider = cast(OpenAiCompatibleProvider, build_provider(config))
+    try:
+        inputs = _gather_recalc_inputs(handle, scope)
+        system, user = build_criteria_recalc_prompt(
+            about_me=inputs.about_me,
+            current_criteria_text=inputs.current_text,
+            feedback_samples=inputs.samples,
+        )
+        raw = await provider.call_json(
+            system=system,
+            user=user,
+            schema=CRITERIA_RECALC_RESPONSE_SCHEMA,
+            max_input_tokens=_RECALC_MAX_INPUT_TOKENS,
+        )
+        parsed = parse_criteria_response(raw)
+
+        with handle.session_factory() as session:
+            new_version = insert_criteria(
+                session,
+                scope=scope,
+                criteria_text=parsed.new_criteria_text,
+                now=datetime.now(UTC),
+            )
+            session.commit()
+        click.echo(
+            json.dumps(
+                {
+                    "scope": scope,
+                    "old_version": inputs.old_version,
+                    "new_version": new_version,
+                    "what_changed": parsed.what_changed,
+                    "consumed_feedback_ids": inputs.consumed_feedback_ids,
+                },
+                ensure_ascii=False,
+            )
+        )
+    finally:
+        await provider.aclose()
+
+
+def _gather_recalc_inputs(handle: DatabaseHandle, scope: str) -> _RecalcInputs:
+    feedback_filter, chat_id_filter = _parse_recalc_scope(scope)
+    with handle.session_factory() as session:
+        current = get_active_criteria(session, scope)
+        if current is None:
+            raise click.ClickException(f"no active criteria for scope {scope!r}")
+        unconsumed = get_unconsumed_feedback(session, scope=feedback_filter, chat_id=chat_id_filter)
+        if not unconsumed:
+            raise click.ClickException(f"no unconsumed feedback for scope {scope!r}")
+        samples = [_to_feedback_sample(session, feedback) for feedback in unconsumed]
+        about_me = get_user_profile_about_me(session) or ""
+        consumed_ids = [feedback.id for feedback in unconsumed]
+        # Mark consumed up-front so concurrent runs don't race; commit before the LLM call.
+        mark_feedback_consumed(session, consumed_ids)
+        session.commit()
+    return _RecalcInputs(
+        old_version=current.version,
+        current_text=current.criteria_text,
+        samples=samples,
+        about_me=about_me,
+        consumed_feedback_ids=consumed_ids,
+    )
+
+
+def _to_feedback_sample(session: Session, feedback: Feedback) -> FeedbackSample:
+    messages = get_messages_by_ids(session, chat_id=feedback.chat_id, message_ids=feedback.message_ids)
+    return FeedbackSample(user_comment=feedback.user_comment, messages=messages)
+
+
+def _parse_recalc_scope(scope: str) -> tuple[str, int | None]:
+    if scope == "global":
+        return "global", None
+    if scope.startswith("chat:"):
+        try:
+            return "chat", int(scope[len("chat:") :])
+        except ValueError as error:
+            raise click.BadParameter(f"--scope chat:<id> must have integer id; got {scope!r}") from error
+    raise click.BadParameter(f"--scope must be 'global' or 'chat:<id>'; got {scope!r}")
+
+
+def _format_datetime(value: datetime) -> str:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
