@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from sqlalchemy import select, update
@@ -14,6 +15,7 @@ from tgm.core.types import Chat, ChatProfile, ImportanceCriteria, Message, RunSt
 from tgm.shell.orm import (
     ChatProfileRow,
     ChatRow,
+    FeedbackRow,
     ImportanceCriterionRow,
     MessageRow,
     RunStateRow,
@@ -166,3 +168,25 @@ def get_active_criteria(session: Session, scope: str) -> ImportanceCriteria | No
     if row is None:
         return None
     return convert_row_to_importance_criteria(row)
+
+
+def insert_feedback(
+    session: Session,
+    *,
+    chat_id: int,
+    message_ids: list[int],
+    user_comment: str | None,
+    scope: str,
+    marked_at: datetime,
+) -> int:
+    row = FeedbackRow(
+        chat_id=chat_id,
+        message_ids_json=json.dumps(message_ids),
+        user_comment=user_comment,
+        scope=scope,
+        consumed=False,
+        marked_at=marked_at,
+    )
+    session.add(row)
+    session.flush()
+    return int(row.id)

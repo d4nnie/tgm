@@ -68,6 +68,17 @@ class ImportanceCriteria:
 
 
 @dataclass(frozen=True)
+class Feedback:
+    id: int
+    chat_id: int
+    message_ids: list[int]
+    user_comment: str | None
+    scope: Literal["chat", "global"]
+    consumed: bool
+    marked_at: datetime
+
+
+@dataclass(frozen=True)
 class LlmProviderConfig:
     provider: LlmProvider
     base_url: str
