@@ -1,20 +1,25 @@
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 ChatType = Literal["user", "group", "supergroup", "channel"]
 LlmProvider = Literal["openai-compat", "anthropic"]
 
+_FROZEN_STRICT = ConfigDict(frozen=True, extra="forbid")
 
-@dataclass(frozen=True)
-class TelegramCredentials:
+
+class TelegramCredentials(BaseModel):
+    model_config = _FROZEN_STRICT
+
     api_id: int
     api_hash: str
     phone: str | None = None
 
 
-@dataclass(frozen=True)
-class Chat:
+class Chat(BaseModel):
+    model_config = _FROZEN_STRICT
+
     chat_id: int
     title: str
     chat_type: ChatType
@@ -23,8 +28,9 @@ class Chat:
     added_at: datetime
 
 
-@dataclass(frozen=True)
-class Message:
+class Message(BaseModel):
+    model_config = _FROZEN_STRICT
+
     chat_id: int
     message_id: int
     timestamp: datetime
@@ -36,22 +42,25 @@ class Message:
     raw_json: str
 
 
-@dataclass(frozen=True)
-class RunState:
+class RunState(BaseModel):
+    model_config = _FROZEN_STRICT
+
     scope: str
     last_run_at: datetime | None
     last_message_id: int | None
 
 
-@dataclass(frozen=True)
-class ChatDialog:
+class ChatDialog(BaseModel):
+    model_config = _FROZEN_STRICT
+
     chat_id: int
     title: str
     chat_type: ChatType
 
 
-@dataclass(frozen=True)
-class LlmProviderConfig:
+class LlmProviderConfig(BaseModel):
+    model_config = _FROZEN_STRICT
+
     provider: LlmProvider
     base_url: str
     model: str

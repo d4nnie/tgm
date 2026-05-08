@@ -1,11 +1,14 @@
 import json
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
+
+from pydantic import BaseModel, ConfigDict
 
 from tgm.core.types import Chat, ChatDialog, ChatType, Message, RunState
 
 _GLOBAL_SCOPE = "global"
+
+_FROZEN_STRICT = ConfigDict(frozen=True, extra="forbid")
 
 
 def get_chat_scope(chat_id: int) -> str:
@@ -16,8 +19,9 @@ def get_global_scope() -> str:
     return _GLOBAL_SCOPE
 
 
-@dataclass(frozen=True)
-class MessageEditPayload:
+class MessageEditPayload(BaseModel):
+    model_config = _FROZEN_STRICT
+
     chat_id: int
     message_id: int
     text: str | None

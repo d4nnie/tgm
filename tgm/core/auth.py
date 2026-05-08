@@ -294,7 +294,7 @@ def _apply_pre_login_event(state: AuthorizationState, event: Event) -> Authoriza
             existing = state.credentials
             if existing is None:
                 raise AuthorizationFlowError("PhoneProvided event requires existing credentials")
-            new_credentials = replace(existing, phone=phone)
+            new_credentials = existing.model_copy(update={"phone": phone})
             return replace(state, credentials=new_credentials, fresh_phone=True)
         case AuthorizationChecked(authorized):
             return replace(state, authorization_checked=True, authorized=authorized)
