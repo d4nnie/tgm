@@ -86,7 +86,7 @@ jobs:
       - name: Smoke check (boot + migrate)
         env:
           TGM_DB_PATH: ${{ runner.temp }}/smoke.sqlite
-        run: ./telegram-monitor-x86_64.AppImage --appimage-extract-and-run
+        run: ./telegram-monitor-x86_64.AppImage --appimage-extract-and-run chat remove 0
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v7
@@ -118,7 +118,7 @@ jobs:
         shell: pwsh
         env:
           TGM_DB_PATH: ${{ runner.temp }}\smoke.sqlite
-        run: dist\telegram-monitor.exe
+        run: dist\telegram-monitor.exe chat remove 0
 
       - name: Upload .exe artifact
         uses: actions/upload-artifact@v7
