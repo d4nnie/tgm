@@ -46,16 +46,22 @@ def criteria_group() -> None:
 @click.option("--scope", type=str, default="global", help="global | chat:<id>.")
 @click.pass_obj
 def criteria_show(handle: DatabaseHandle, scope: str) -> None:
-    """Print active criteria text as JSON."""
+    """Print active criteria text as JSON. For chat:<id> falls back to global if no override."""
     with handle.session_factory() as session:
         criteria = get_active_criteria(session, scope)
+        inherited = False
+        if criteria is None and scope.startswith("chat:"):
+            criteria = get_active_criteria(session, "global")
+            inherited = criteria is not None
     if criteria is None:
         click.echo(json.dumps({"scope": scope, "criteria_text": None, "version": None}, ensure_ascii=False))
         return
     click.echo(
         json.dumps(
             {
-                "scope": criteria.scope,
+                "scope": scope,
+                "effective_scope": criteria.scope,
+                "inherited": inherited,
                 "version": criteria.version,
                 "criteria_text": criteria.criteria_text,
                 "updated_at": _format_datetime(criteria.updated_at),
