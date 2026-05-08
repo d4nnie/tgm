@@ -12,7 +12,7 @@ from tgm.core.schemas import (
     GlobalResponse,
     PerChatResponse,
 )
-from tgm.core.types import Chat, ChatDialog, ChatType, Message, RunState
+from tgm.core.types import Chat, ChatDialog, ChatProfile, ChatType, Message, RunState
 
 _GLOBAL_SCOPE = "global"
 
@@ -152,6 +152,15 @@ def convert_row_to_run_state(row: Any) -> RunState:
         scope=str(row.scope),
         last_run_at=row.last_run_at,
         last_message_id=int(row.last_message_id) if row.last_message_id is not None else None,
+    )
+
+
+def convert_row_to_chat_profile(row: Any) -> ChatProfile:
+    return ChatProfile(
+        chat_id=int(row.chat_id),
+        description_prompt=str(row.description_prompt or ""),
+        rolling_summary=str(row.rolling_summary or ""),
+        updated_at=row.updated_at,
     )
 
 

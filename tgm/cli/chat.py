@@ -2,16 +2,25 @@ import json
 from datetime import UTC, datetime
 
 import click
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from tgm.cli.auth import run_with_session_guard
 from tgm.cli.prompts import make_click_login_callbacks, make_click_status_callback
-from tgm.cli.stubs import stub_not_implemented
 from tgm.core.errors import StatusCallback
 from tgm.core.parsing import classify_telethon_entity, extract_entity_display_name
 from tgm.core.types import Chat
 from tgm.shell.client import fetch_dialogs, login
 from tgm.shell.db import DatabaseHandle
-from tgm.shell.repos import is_chat_monitored, mark_chat_unmonitored, upsert_chat
+from tgm.shell.orm import ChatRow
+from tgm.shell.repos import (
+    get_chat_profile,
+    is_chat_monitored,
+    mark_chat_unmonitored,
+    update_chat_period,
+    upsert_chat,
+    upsert_chat_profile_description,
+)
 from tgm.shell.retry import do_with_telethon_guard
 
 
@@ -51,9 +60,42 @@ def chat_remove(handle: DatabaseHandle, chat_id: int) -> None:
 @click.argument("chat_id", type=int)
 @click.option("--description", type=str, default=None, help="Chat description prompt.")
 @click.option("--period", type=int, default=None, help="Per-chat tick period in minutes.")
-def chat_profile(chat_id: int, description: str | None, period: int | None) -> None:
+@click.pass_obj
+def chat_profile(handle: DatabaseHandle, chat_id: int, description: str | None, period: int | None) -> None:
     """Show or edit chat profile."""
-    stub_not_implemented("EPIC-04 (repos)")
+    with handle.session_factory() as session:
+        if (description is not None or period is not None) and not _chat_exists(session, chat_id):
+            raise click.ClickException(f"chat_id={chat_id} not in whitelist; run `chat add {chat_id}` first")
+        if description is not None:
+            upsert_chat_profile_description(
+                session,
+                chat_id=chat_id,
+                description_prompt=description,
+                now=datetime.now(UTC),
+            )
+        if period is not None:
+            update_chat_period(session, chat_id=chat_id, period_n_minutes=period)
+        if description is not None or period is not None:
+            session.commit()
+        payload = _read_chat_profile_payload(session, chat_id)
+    click.echo(json.dumps(payload, ensure_ascii=False))
+
+
+def _chat_exists(session: Session, chat_id: int) -> bool:
+    return session.execute(select(ChatRow.chat_id).where(ChatRow.chat_id == chat_id)).scalar_one_or_none() is not None
+
+
+def _read_chat_profile_payload(session: Session, chat_id: int) -> dict[str, object]:
+    chat_period = session.execute(
+        select(ChatRow.period_n_minutes).where(ChatRow.chat_id == chat_id)
+    ).scalar_one_or_none()
+    profile = get_chat_profile(session, chat_id)
+    return {
+        "chat_id": chat_id,
+        "description_prompt": profile.description_prompt if profile else "",
+        "rolling_summary": profile.rolling_summary if profile else "",
+        "period_n_minutes": int(chat_period) if chat_period is not None else None,
+    }
 
 
 async def _run_chat_list(handle: DatabaseHandle) -> None:

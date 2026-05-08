@@ -51,6 +51,14 @@ class ChatDialog:
 
 
 @dataclass(frozen=True)
+class ChatProfile:
+    chat_id: int
+    description_prompt: str
+    rolling_summary: str
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class LlmProviderConfig:
     provider: LlmProvider
     base_url: str

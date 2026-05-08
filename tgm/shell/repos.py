@@ -4,9 +4,9 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from tgm.core.parsing import convert_row_to_chat, convert_row_to_run_state
-from tgm.core.types import Chat, Message, RunState
-from tgm.shell.orm import ChatRow, MessageRow, RunStateRow, UserProfileRow
+from tgm.core.parsing import convert_row_to_chat, convert_row_to_chat_profile, convert_row_to_run_state
+from tgm.core.types import Chat, ChatProfile, Message, RunState
+from tgm.shell.orm import ChatProfileRow, ChatRow, MessageRow, RunStateRow, UserProfileRow
 
 _ABOUT_ME_KEY = "about_me"
 
@@ -119,3 +119,26 @@ def upsert_user_profile_about_me(session: Session, text: str) -> None:
         .on_conflict_do_update(index_elements=["key"], set_={"value": text})
     )
     session.execute(statement)
+
+
+def get_chat_profile(session: Session, chat_id: int) -> ChatProfile | None:
+    row = session.execute(select(ChatProfileRow).where(ChatProfileRow.chat_id == chat_id)).scalar_one_or_none()
+    if row is None:
+        return None
+    return convert_row_to_chat_profile(row)
+
+
+def upsert_chat_profile_description(session: Session, *, chat_id: int, description_prompt: str, now: datetime) -> None:
+    statement = (
+        sqlite_insert(ChatProfileRow)
+        .values(chat_id=chat_id, description_prompt=description_prompt, updated_at=now)
+        .on_conflict_do_update(
+            index_elements=["chat_id"],
+            set_={"description_prompt": description_prompt, "updated_at": now},
+        )
+    )
+    session.execute(statement)
+
+
+def update_chat_period(session: Session, *, chat_id: int, period_n_minutes: int) -> None:
+    session.execute(update(ChatRow).where(ChatRow.chat_id == chat_id).values(period_n_minutes=period_n_minutes))
