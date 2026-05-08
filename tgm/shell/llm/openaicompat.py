@@ -33,7 +33,10 @@ class OpenAiCompatibleProvider:
         self._api_key = api_key
         self._model = model
         self._options = dict(options) if options else None
-        self._client = httpx.AsyncClient(timeout=request_timeout_seconds)
+        # trust_env=False: don't auto-discover system proxies (env vars on POSIX,
+        # registry on Windows). Local Ollama and cloud OpenAI both want a direct
+        # connection; Windows IE auto-detect proxies were 502'ing localhost calls.
+        self._client = httpx.AsyncClient(timeout=request_timeout_seconds, trust_env=False)
         self._lock = asyncio.Lock()
 
     async def call_json(
