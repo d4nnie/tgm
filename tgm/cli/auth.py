@@ -1,11 +1,11 @@
 import asyncio
-import functools
 
 import click
 from telethon.tl.types import User
 
+from tgm.cli.prompts import make_click_login_callbacks
 from tgm.cli.stubs import stub_not_implemented
-from tgm.shell.client import LoginCallbacks, login
+from tgm.shell.client import login
 
 
 @click.group(name="auth")
@@ -26,15 +26,7 @@ def auth_status() -> None:
 
 
 async def _run_login() -> None:
-    callbacks = LoginCallbacks(
-        request_api_id=functools.partial(_prompt_int, "api_id (from my.telegram.org)"),
-        request_api_hash=functools.partial(_prompt_secret, "api_hash"),
-        request_phone=functools.partial(_prompt_text, "phone (e.g. +79991234567)"),
-        request_sms_code=functools.partial(_prompt_text, "SMS code"),
-        request_password=functools.partial(_prompt_secret, "2FA password"),
-    )
-
-    client = await login(callbacks)
+    client = await login(make_click_login_callbacks())
     try:
         me = await client.get_me()
         if isinstance(me, User):
@@ -43,15 +35,3 @@ async def _run_login() -> None:
             click.echo("Logged in")
     finally:
         await client.disconnect()
-
-
-async def _prompt_int(label: str) -> int:
-    return await asyncio.to_thread(click.prompt, label, type=int)
-
-
-async def _prompt_text(label: str) -> str:
-    return await asyncio.to_thread(click.prompt, label, type=str)
-
-
-async def _prompt_secret(label: str) -> str:
-    return await asyncio.to_thread(click.prompt, label, type=str, hide_input=True)

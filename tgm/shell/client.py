@@ -1,8 +1,10 @@
+import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 
 from tgm.core.auth import (
@@ -37,6 +39,11 @@ from tgm.core.auth import (
     create_initial_state,
     decide_next_action,
 )
+from tgm.core.parsing import (
+    build_edit_payload_from_telethon,
+    build_message_from_telethon,
+    serialize_telethon_message,
+)
 from tgm.core.types import TelegramCredentials
 from tgm.shell.config import (
     load_telegram_credentials,
@@ -44,6 +51,11 @@ from tgm.shell.config import (
     save_telegram_phone,
 )
 from tgm.shell.platform import get_user_data_dir, restrict_path_access
+from tgm.shell.repos import (
+    insert_message,
+    is_chat_monitored,
+    update_message_edit,
+)
 
 _SESSION_BASENAME = "session"
 
@@ -167,6 +179,53 @@ def _execute_local_action(action: Action) -> Event:
             save_telegram_phone(phone)
             return CredentialsPersisted()
     raise AuthorizationFlowError(f"unexpected local action: {action!r}")
+
+
+def subscribe_to_message_events(client: TelegramClient, connection: sqlite3.Connection) -> None:
+    @client.on(events.NewMessage())
+    async def _on_new_message(event: events.NewMessage.Event) -> None:
+        await _handle_new_message(connection, event)
+
+    @client.on(events.MessageEdited())
+    async def _on_message_edited(event: events.MessageEdited.Event) -> None:
+        await _handle_message_edited(connection, event)
+
+
+async def _handle_new_message(connection: sqlite3.Connection, event: events.NewMessage.Event) -> None:
+    chat_id = event.chat_id
+    if chat_id is None or not is_chat_monitored(connection, int(chat_id)):
+        return
+
+    sender = await event.get_sender()
+    message = build_message_from_telethon(
+        chat_id=int(chat_id),
+        telethon_message=event.message,
+        sender=sender,
+        raw_json=serialize_telethon_message(event.message),
+        fallback_timestamp=datetime.now(UTC),
+    )
+    insert_message(connection, message)
+
+
+async def _handle_message_edited(connection: sqlite3.Connection, event: events.MessageEdited.Event) -> None:
+    chat_id = event.chat_id
+    if chat_id is None or not is_chat_monitored(connection, int(chat_id)):
+        return
+
+    payload = build_edit_payload_from_telethon(
+        chat_id=int(chat_id),
+        telethon_message=event.message,
+        raw_json=serialize_telethon_message(event.message),
+        fallback_edited_at=datetime.now(UTC),
+    )
+    update_message_edit(
+        connection,
+        chat_id=payload.chat_id,
+        msg_id=payload.msg_id,
+        text=payload.text,
+        edited_at=payload.edited_at,
+        raw_json=payload.raw_json,
+    )
 
 
 def _evaluate_telethon_session_argument() -> str:
