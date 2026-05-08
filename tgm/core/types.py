@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 ChatType = Literal["user", "group", "supergroup", "channel"]
+LlmProvider = Literal["openai-compat", "anthropic"]
 
 
 @dataclass(frozen=True)
@@ -47,3 +48,12 @@ class ChatDialog:
     chat_id: int
     title: str
     chat_type: ChatType
+
+
+@dataclass(frozen=True)
+class LlmProviderConfig:
+    provider: LlmProvider
+    base_url: str
+    model: str
+    api_key_env: str | None = None
+    options: dict[str, Any] | None = None

@@ -1,7 +1,16 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast, get_args
 
-from tgm.core.types import TelegramCredentials
+from tgm.core.types import LlmProvider, LlmProviderConfig, TelegramCredentials
+
+_VALID_LLM_PROVIDERS: frozenset[str] = frozenset(get_args(LlmProvider))
+
+DEFAULT_LLM_CONFIG_SECTION: dict[str, Any] = {
+    "provider": "openai-compat",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "gpt-oss:20b",
+    "options": {"num_ctx": 24576},
+}
 
 
 def extract_telegram_credentials_from_env(env: Mapping[str, str]) -> TelegramCredentials | None:
@@ -43,3 +52,53 @@ def merge_telegram_phone(config: Mapping[str, Any], phone: str) -> dict[str, Any
     telegram_section["phone"] = phone
     new_config["telegram"] = telegram_section
     return new_config
+
+
+def extract_llm_provider_config_from_config(config: Mapping[str, Any]) -> LlmProviderConfig:
+    section = _require_llm_section(config)
+    return LlmProviderConfig(
+        provider=_extract_llm_provider(section),
+        base_url=_extract_required_string(section, "base_url"),
+        model=_extract_required_string(section, "model"),
+        api_key_env=_extract_optional_string(section, "api_key_env"),
+        options=_extract_optional_mapping(section, "options"),
+    )
+
+
+def _require_llm_section(config: Mapping[str, Any]) -> Mapping[str, Any]:
+    section = config.get("llm")
+    if not isinstance(section, Mapping):
+        raise ValueError("Missing [llm] section in config")
+    return section
+
+
+def _extract_llm_provider(section: Mapping[str, Any]) -> LlmProvider:
+    value = section.get("provider")
+    if value not in _VALID_LLM_PROVIDERS:
+        raise ValueError(f"llm.provider must be one of {sorted(_VALID_LLM_PROVIDERS)}; got: {value!r}")
+    return cast(LlmProvider, value)
+
+
+def _extract_required_string(section: Mapping[str, Any], field_name: str) -> str:
+    value = section.get(field_name)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"Missing or empty llm.{field_name}")
+    return value
+
+
+def _extract_optional_string(section: Mapping[str, Any], field_name: str) -> str | None:
+    value = section.get(field_name)
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"llm.{field_name} must be a string")
+    return value
+
+
+def _extract_optional_mapping(section: Mapping[str, Any], field_name: str) -> dict[str, Any] | None:
+    value = section.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError(f"llm.{field_name} must be a table")
+    return dict(value)

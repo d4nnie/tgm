@@ -1,12 +1,14 @@
 import pytest
 
 from tgm.core.config import (
+    DEFAULT_LLM_CONFIG_SECTION,
+    extract_llm_provider_config_from_config,
     extract_telegram_credentials_from_config,
     extract_telegram_credentials_from_env,
     merge_telegram_credentials,
     merge_telegram_phone,
 )
-from tgm.core.types import TelegramCredentials
+from tgm.core.types import LlmProviderConfig, TelegramCredentials
 
 
 def test_extract_from_env_returns_credentials_when_both_set():
@@ -193,3 +195,117 @@ def test_merge_phone_does_not_mutate_input():
     merge_telegram_phone(config, "+1")
 
     assert config == {"telegram": {"api_id": 1, "api_hash": "h"}}
+
+
+def _full_llm_section(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "provider": "openai-compat",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "model": "gpt-oss:20b",
+        "api_key_env": "OPENAI_API_KEY",
+        "options": {"num_ctx": 24576},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_extract_llm_provider_config_returns_openai_compat_with_full_section():
+    config = {"llm": _full_llm_section()}
+
+    result = extract_llm_provider_config_from_config(config)
+
+    assert result == LlmProviderConfig(
+        provider="openai-compat",
+        base_url="http://127.0.0.1:11434/v1",
+        model="gpt-oss:20b",
+        api_key_env="OPENAI_API_KEY",
+        options={"num_ctx": 24576},
+    )
+
+
+def test_extract_llm_provider_config_accepts_anthropic_value():
+    config = {"llm": _full_llm_section(provider="anthropic")}
+
+    result = extract_llm_provider_config_from_config(config)
+
+    assert result.provider == "anthropic"
+
+
+def test_extract_llm_provider_config_omits_optional_api_key_env():
+    section = _full_llm_section()
+    del section["api_key_env"]
+
+    result = extract_llm_provider_config_from_config({"llm": section})
+
+    assert result.api_key_env is None
+
+
+def test_extract_llm_provider_config_omits_optional_options():
+    section = _full_llm_section()
+    del section["options"]
+
+    result = extract_llm_provider_config_from_config({"llm": section})
+
+    assert result.options is None
+
+
+def test_extract_llm_provider_config_treats_empty_string_api_key_env_as_none():
+    config = {"llm": _full_llm_section(api_key_env="")}
+
+    result = extract_llm_provider_config_from_config(config)
+
+    assert result.api_key_env is None
+
+
+def test_extract_llm_provider_config_raises_when_section_missing():
+    with pytest.raises(ValueError, match=r"\[llm\]"):
+        extract_llm_provider_config_from_config({})
+
+
+def test_extract_llm_provider_config_raises_when_provider_unknown():
+    config = {"llm": _full_llm_section(provider="bogus")}
+
+    with pytest.raises(ValueError, match=r"llm\.provider"):
+        extract_llm_provider_config_from_config(config)
+
+
+def test_extract_llm_provider_config_raises_when_base_url_missing():
+    section = _full_llm_section()
+    del section["base_url"]
+
+    with pytest.raises(ValueError, match=r"llm\.base_url"):
+        extract_llm_provider_config_from_config({"llm": section})
+
+
+def test_extract_llm_provider_config_raises_when_base_url_empty():
+    config = {"llm": _full_llm_section(base_url="")}
+
+    with pytest.raises(ValueError, match=r"llm\.base_url"):
+        extract_llm_provider_config_from_config(config)
+
+
+def test_extract_llm_provider_config_raises_when_model_missing():
+    section = _full_llm_section()
+    del section["model"]
+
+    with pytest.raises(ValueError, match=r"llm\.model"):
+        extract_llm_provider_config_from_config({"llm": section})
+
+
+def test_extract_llm_provider_config_raises_when_options_not_a_table():
+    config = {"llm": _full_llm_section(options=42)}
+
+    with pytest.raises(ValueError, match=r"llm\.options"):
+        extract_llm_provider_config_from_config(config)
+
+
+def test_default_llm_config_section_parses_back_to_local_ollama_preset():
+    result = extract_llm_provider_config_from_config({"llm": DEFAULT_LLM_CONFIG_SECTION})
+
+    assert result == LlmProviderConfig(
+        provider="openai-compat",
+        base_url="http://127.0.0.1:11434/v1",
+        model="gpt-oss:20b",
+        api_key_env=None,
+        options={"num_ctx": 24576},
+    )
