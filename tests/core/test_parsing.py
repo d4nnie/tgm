@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tgm.core.llm import LLMResponseError
 from tgm.core.parsing import (
     MessageEditPayload,
     build_chat_dialog_from_telethon,
@@ -16,6 +17,9 @@ from tgm.core.parsing import (
     extract_sender_name,
     get_chat_scope,
     get_global_scope,
+    parse_criteria_response,
+    parse_global_response,
+    parse_per_chat_response,
     serialize_telethon_message,
 )
 from tgm.core.types import Chat, ChatDialog, Message, RunState
@@ -437,3 +441,109 @@ def test_build_chat_dialog_falls_back_to_id_when_title_missing():
     dialog = SimpleNamespace(id=99, entity=SimpleNamespace(id=99, first_name=None))
 
     assert build_chat_dialog_from_telethon(dialog).title == "id=99"
+
+
+def _per_chat_payload(**overrides):
+    base = {
+        "summary": "Discussed deploy",
+        "highlights": [{"message_id": 42, "why": "blocker"}],
+        "updated_rolling_summary": "Team aligned",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_parse_per_chat_response_returns_model_for_valid_payload():
+    parsed = parse_per_chat_response(_per_chat_payload(), known_message_ids={42})
+
+    assert parsed.summary == "Discussed deploy"
+    assert parsed.highlights[0].message_id == 42
+
+
+def test_parse_per_chat_response_raises_on_unknown_message_id():
+    with pytest.raises(LLMResponseError, match="unknown message_id=99"):
+        parse_per_chat_response(
+            _per_chat_payload(highlights=[{"message_id": 99, "why": "x"}]),
+            known_message_ids={42},
+        )
+
+
+def test_parse_per_chat_response_raises_on_empty_summary():
+    with pytest.raises(LLMResponseError, match="summary"):
+        parse_per_chat_response(_per_chat_payload(summary="   "), known_message_ids={42})
+
+
+def test_parse_per_chat_response_raises_on_empty_highlight_why():
+    with pytest.raises(LLMResponseError, match="why"):
+        parse_per_chat_response(
+            _per_chat_payload(highlights=[{"message_id": 42, "why": " "}]),
+            known_message_ids={42},
+        )
+
+
+def test_parse_per_chat_response_wraps_validation_error():
+    with pytest.raises(LLMResponseError, match="PerChatResponse schema"):
+        parse_per_chat_response({"summary": "x", "highlights": []}, known_message_ids=set())
+
+
+def _global_payload(**overrides):
+    base = {
+        "summary": "Overall steady",
+        "highlights": [{"chat_id": 111, "message_id": 7, "why": "deadline"}],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_parse_global_response_returns_model_for_valid_payload():
+    parsed = parse_global_response(_global_payload(), known_chat_message_pairs={(111, 7)})
+
+    assert parsed.highlights[0].chat_id == 111
+
+
+def test_parse_global_response_raises_on_unknown_pair():
+    with pytest.raises(LLMResponseError, match=r"\(chat_id=111, message_id=7\)"):
+        parse_global_response(_global_payload(), known_chat_message_pairs=set())
+
+
+def test_parse_global_response_raises_on_empty_summary():
+    with pytest.raises(LLMResponseError, match="summary"):
+        parse_global_response(
+            _global_payload(summary=""),
+            known_chat_message_pairs={(111, 7)},
+        )
+
+
+def test_parse_global_response_wraps_validation_error():
+    with pytest.raises(LLMResponseError, match="GlobalResponse schema"):
+        parse_global_response({"summary": "x"}, known_chat_message_pairs=set())
+
+
+def _criteria_payload(**overrides):
+    base = {
+        "new_criteria_text": "New rules",
+        "what_changed": "Added something",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_parse_criteria_response_returns_model_for_valid_payload():
+    parsed = parse_criteria_response(_criteria_payload())
+
+    assert parsed.new_criteria_text == "New rules"
+
+
+def test_parse_criteria_response_raises_on_empty_new_criteria_text():
+    with pytest.raises(LLMResponseError, match="new_criteria_text"):
+        parse_criteria_response(_criteria_payload(new_criteria_text=""))
+
+
+def test_parse_criteria_response_raises_on_empty_what_changed():
+    with pytest.raises(LLMResponseError, match="what_changed"):
+        parse_criteria_response(_criteria_payload(what_changed=" "))
+
+
+def test_parse_criteria_response_wraps_validation_error():
+    with pytest.raises(LLMResponseError, match="CriteriaRecalcResponse schema"):
+        parse_criteria_response({"new_criteria_text": "x"})
