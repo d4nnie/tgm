@@ -10,7 +10,7 @@ from tgm.cli.prompts import make_click_login_callbacks, make_click_status_callba
 from tgm.cli.stubs import stub_not_implemented
 from tgm.core.errors import SessionExpiredError
 from tgm.shell.client import login
-from tgm.shell.retry import with_telethon_guard
+from tgm.shell.retry import do_with_telethon_guard
 
 
 @click.group(name="auth")
@@ -42,7 +42,7 @@ async def _run_login() -> None:
     status_callback = make_click_status_callback()
     client = await login(make_click_login_callbacks(), status_callback)
     try:
-        me = await with_telethon_guard(lambda: client.get_me(), status_callback)
+        me = await do_with_telethon_guard(lambda: client.get_me(), status_callback)
         if isinstance(me, User):
             click.echo(f"Logged in as {me.first_name} (id={me.id})")
         else:

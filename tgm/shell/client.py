@@ -62,7 +62,7 @@ from tgm.shell.repos import (
     list_monitored_chat_ids,
     update_message_edit,
 )
-from tgm.shell.retry import with_telethon_guard
+from tgm.shell.retry import do_with_telethon_guard
 
 logger = logging.getLogger(__name__)
 
@@ -153,8 +153,8 @@ async def _open_client_and_check_authorization(
     credentials: TelegramCredentials, status_callback: StatusCallback
 ) -> tuple[TelegramClient, Event]:
     client = TelegramClient(_evaluate_telethon_session_argument(), credentials.api_id, credentials.api_hash)
-    await with_telethon_guard(lambda: client.connect(), status_callback)
-    authorized = await with_telethon_guard(lambda: client.is_user_authorized(), status_callback)
+    await do_with_telethon_guard(lambda: client.connect(), status_callback)
+    authorized = await do_with_telethon_guard(lambda: client.is_user_authorized(), status_callback)
     return client, AuthorizationChecked(authorized=authorized)
 
 
@@ -163,13 +163,13 @@ async def _execute_authenticated_action(
 ) -> tuple[TelegramClient, Event]:
     match action:
         case RequestCode(phone):
-            await with_telethon_guard(lambda: client.send_code_request(phone), status_callback)
+            await do_with_telethon_guard(lambda: client.send_code_request(phone), status_callback)
             return client, CodeRequested()
         case SignInWithCode(phone, code):
             password_required = await _try_sign_in_with_code(client, phone, code, status_callback)
             return client, SignInCompleted(password_required=password_required)
         case SignInWithPassword(password):
-            await with_telethon_guard(lambda: client.sign_in(password=password), status_callback)
+            await do_with_telethon_guard(lambda: client.sign_in(password=password), status_callback)
             return client, PasswordSignInCompleted()
     raise AuthorizationFlowError(f"unexpected authenticated action: {action!r}")
 
@@ -178,7 +178,7 @@ async def _try_sign_in_with_code(
     client: TelegramClient, phone: str, code: str, status_callback: StatusCallback
 ) -> bool:
     try:
-        await with_telethon_guard(lambda: client.sign_in(phone, code), status_callback)
+        await do_with_telethon_guard(lambda: client.sign_in(phone, code), status_callback)
         return False
     except SessionPasswordNeededError:
         return True
@@ -220,7 +220,7 @@ async def _handle_new_message(
         return
 
     try:
-        sender = await with_telethon_guard(lambda: event.get_sender(), status_callback)
+        sender = await do_with_telethon_guard(lambda: event.get_sender(), status_callback)
     except SessionExpiredError:
         status_callback(_SESSION_EXPIRED_HANDLER_MESSAGE)
         return
@@ -284,7 +284,7 @@ async def _backfill_chat(
 
     inserted_count = 0
     async for telethon_message in client.iter_messages(chat_id, min_id=state.last_msg_id):
-        sender = await with_telethon_guard(lambda message=telethon_message: message.get_sender(), status_callback)
+        sender = await do_with_telethon_guard(lambda message=telethon_message: message.get_sender(), status_callback)
         message = build_message_from_telethon(
             chat_id=chat_id,
             telethon_message=telethon_message,

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-async def with_telethon_guard(call_factory: Callable[[], Awaitable[T]], status_callback: StatusCallback) -> T:
+async def do_with_telethon_guard(call_factory: Callable[[], Awaitable[T]], status_callback: StatusCallback) -> T:
     attempt = 0
     while True:
         try:

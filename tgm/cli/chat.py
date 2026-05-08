@@ -12,7 +12,7 @@ from tgm.core.types import Chat
 from tgm.shell.client import fetch_dialogs, login
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.repos import is_chat_monitored, mark_chat_unmonitored, upsert_chat
-from tgm.shell.retry import with_telethon_guard
+from tgm.shell.retry import do_with_telethon_guard
 
 
 @click.group(name="chat")
@@ -109,7 +109,7 @@ async def _run_chat_add(handle: DatabaseHandle, chat_id: int, period_n_minutes: 
 
 
 async def _fetch_entity(client: object, chat_id: int, status_callback: StatusCallback) -> object:
-    return await with_telethon_guard(
+    return await do_with_telethon_guard(
         lambda: client.get_entity(chat_id),  # ty: ignore[unresolved-attribute]
         status_callback,
     )
