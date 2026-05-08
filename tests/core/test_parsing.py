@@ -10,9 +10,11 @@ from tgm.core.parsing import (
     classify_telethon_entity,
     extract_entity_display_name,
     extract_sender_name,
+    row_to_chat,
+    row_to_message,
     serialize_telethon_message,
 )
-from tgm.core.types import Message
+from tgm.core.types import Chat, Message
 
 
 def test_extract_sender_name_returns_none_for_none():
@@ -279,3 +281,77 @@ def test_extract_entity_display_name_falls_back_to_id():
 
 def test_extract_entity_display_name_uses_question_mark_when_id_missing():
     assert extract_entity_display_name(SimpleNamespace()) == "id=?"
+
+
+def test_row_to_chat_maps_all_fields():
+    row = SimpleNamespace(
+        chat_id=42,
+        title="Foo",
+        chat_type="group",
+        is_monitored=1,
+        period_n_minutes=15,
+        added_at=datetime(2026, 5, 8, tzinfo=UTC),
+    )
+
+    result = row_to_chat(row)
+
+    assert result == Chat(
+        chat_id=42,
+        title="Foo",
+        chat_type="group",
+        is_monitored=True,
+        period_n_minutes=15,
+        added_at=datetime(2026, 5, 8, tzinfo=UTC),
+    )
+
+
+def test_row_to_chat_normalizes_truthy_int_to_bool():
+    row = SimpleNamespace(
+        chat_id=1, title="t", chat_type="user", is_monitored=0, period_n_minutes=30, added_at=datetime(2026, 1, 1)
+    )
+
+    assert row_to_chat(row).is_monitored is False
+
+
+def test_row_to_message_maps_all_fields():
+    row = SimpleNamespace(
+        chat_id=42,
+        msg_id=7,
+        timestamp=datetime(2026, 5, 8, tzinfo=UTC),
+        sender_id=100,
+        sender_name="Alice",
+        text="hello",
+        reply_to_msg_id=None,
+        edited_at=None,
+        raw_json='{"id":7}',
+    )
+
+    result = row_to_message(row)
+
+    assert result == Message(
+        chat_id=42,
+        msg_id=7,
+        timestamp=datetime(2026, 5, 8, tzinfo=UTC),
+        sender_id=100,
+        sender_name="Alice",
+        text="hello",
+        reply_to_msg_id=None,
+        edited_at=None,
+        raw_json='{"id":7}',
+    )
+
+
+def test_row_to_message_treats_null_raw_json_as_empty_string():
+    row = SimpleNamespace(
+        chat_id=1,
+        msg_id=1,
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        sender_id=None,
+        sender_name=None,
+        text=None,
+        reply_to_msg_id=None,
+        edited_at=None,
+        raw_json=None,
+    )
+
+    assert row_to_message(row).raw_json == ""

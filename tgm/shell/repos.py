@@ -1,63 +1,35 @@
-import sqlite3
 from datetime import datetime
 
-from tgm.core.types import Chat, ChatType, Message
+from sqlalchemy import select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import Session
 
-_INSERT_MESSAGE_SQL = """
-INSERT OR IGNORE INTO messages (
-    chat_id, msg_id, ts, sender_id, sender_name, text, reply_to_msg_id, edited_at, raw_json
-)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-_UPDATE_MESSAGE_EDIT_SQL = """
-UPDATE messages
-SET text = ?, edited_at = ?, raw_json = ?
-WHERE chat_id = ? AND msg_id = ?
-"""
-
-_UPSERT_CHAT_SQL = """
-INSERT INTO chats (chat_id, title, type, is_monitored, period_n_minutes, added_at)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(chat_id) DO UPDATE SET
-    title = excluded.title,
-    type = excluded.type,
-    is_monitored = excluded.is_monitored,
-    period_n_minutes = excluded.period_n_minutes
-"""
-
-_MARK_CHAT_UNMONITORED_SQL = "UPDATE chats SET is_monitored = 0 WHERE chat_id = ?"
-
-_SELECT_IS_CHAT_MONITORED_SQL = "SELECT is_monitored FROM chats WHERE chat_id = ?"
-
-_SELECT_MONITORED_CHAT_IDS_SQL = "SELECT chat_id FROM chats WHERE is_monitored = 1"
-
-_SELECT_CHATS_SQL = """
-SELECT chat_id, title, type, is_monitored, period_n_minutes, added_at
-FROM chats
-ORDER BY title
-"""
+from tgm.core.parsing import row_to_chat
+from tgm.core.types import Chat, Message
+from tgm.shell.orm import ChatRow, MessageRow
 
 
-def insert_message(connection: sqlite3.Connection, message: Message) -> None:
-    connection.execute(
-        _INSERT_MESSAGE_SQL,
-        (
-            message.chat_id,
-            message.msg_id,
-            message.timestamp.isoformat(),
-            message.sender_id,
-            message.sender_name,
-            message.text,
-            message.reply_to_msg_id,
-            message.edited_at.isoformat() if message.edited_at else None,
-            message.raw_json,
-        ),
+def insert_message(session: Session, message: Message) -> None:
+    statement = (
+        sqlite_insert(MessageRow)
+        .values(
+            chat_id=message.chat_id,
+            msg_id=message.msg_id,
+            ts=message.timestamp,
+            sender_id=message.sender_id,
+            sender_name=message.sender_name,
+            text=message.text,
+            reply_to_msg_id=message.reply_to_msg_id,
+            edited_at=message.edited_at,
+            raw_json=message.raw_json,
+        )
+        .on_conflict_do_nothing()
     )
+    session.execute(statement)
 
 
 def update_message_edit(
-    connection: sqlite3.Connection,
+    session: Session,
     *,
     chat_id: int,
     msg_id: int,
@@ -65,54 +37,51 @@ def update_message_edit(
     edited_at: datetime,
     raw_json: str,
 ) -> None:
-    connection.execute(
-        _UPDATE_MESSAGE_EDIT_SQL,
-        (text, edited_at.isoformat(), raw_json, chat_id, msg_id),
+    session.execute(
+        update(MessageRow)
+        .where(MessageRow.chat_id == chat_id, MessageRow.msg_id == msg_id)
+        .values(text=text, edited_at=edited_at, raw_json=raw_json)
     )
 
 
-def upsert_chat(connection: sqlite3.Connection, chat: Chat) -> None:
-    connection.execute(
-        _UPSERT_CHAT_SQL,
-        (
-            chat.chat_id,
-            chat.title,
-            chat.chat_type,
-            int(chat.is_monitored),
-            chat.period_n_minutes,
-            chat.added_at.isoformat(),
-        ),
+def upsert_chat(session: Session, chat: Chat) -> None:
+    statement = (
+        sqlite_insert(ChatRow)
+        .values(
+            chat_id=chat.chat_id,
+            title=chat.title,
+            type=chat.chat_type,
+            is_monitored=chat.is_monitored,
+            period_n_minutes=chat.period_n_minutes,
+            added_at=chat.added_at,
+        )
+        .on_conflict_do_update(
+            index_elements=["chat_id"],
+            set_={
+                "title": chat.title,
+                "type": chat.chat_type,
+                "is_monitored": chat.is_monitored,
+                "period_n_minutes": chat.period_n_minutes,
+            },
+        )
     )
+    session.execute(statement)
 
 
-def mark_chat_unmonitored(connection: sqlite3.Connection, chat_id: int) -> None:
-    connection.execute(_MARK_CHAT_UNMONITORED_SQL, (chat_id,))
+def mark_chat_unmonitored(session: Session, chat_id: int) -> None:
+    session.execute(update(ChatRow).where(ChatRow.chat_id == chat_id).values(is_monitored=False))
 
 
-def is_chat_monitored(connection: sqlite3.Connection, chat_id: int) -> bool:
-    row = connection.execute(_SELECT_IS_CHAT_MONITORED_SQL, (chat_id,)).fetchone()
-    if row is None:
-        return False
-    return bool(row[0])
+def is_chat_monitored(session: Session, chat_id: int) -> bool:
+    flag = session.execute(select(ChatRow.is_monitored).where(ChatRow.chat_id == chat_id)).scalar_one_or_none()
+    return bool(flag) if flag is not None else False
 
 
-def list_monitored_chat_ids(connection: sqlite3.Connection) -> list[int]:
-    rows = connection.execute(_SELECT_MONITORED_CHAT_IDS_SQL).fetchall()
-    return [int(row[0]) for row in rows]
+def list_monitored_chat_ids(session: Session) -> list[int]:
+    rows = session.execute(select(ChatRow.chat_id).where(ChatRow.is_monitored)).scalars().all()
+    return list(rows)
 
 
-def list_chats(connection: sqlite3.Connection) -> list[Chat]:
-    rows = connection.execute(_SELECT_CHATS_SQL).fetchall()
-    return [_row_to_chat(row) for row in rows]
-
-
-def _row_to_chat(row: tuple) -> Chat:
-    chat_type: ChatType = row[2]
-    return Chat(
-        chat_id=int(row[0]),
-        title=str(row[1]),
-        chat_type=chat_type,
-        is_monitored=bool(row[3]),
-        period_n_minutes=int(row[4]),
-        added_at=datetime.fromisoformat(str(row[5])),
-    )
+def list_chats(session: Session) -> list[Chat]:
+    rows = session.execute(select(ChatRow).order_by(ChatRow.title)).scalars().all()
+    return [row_to_chat(row) for row in rows]

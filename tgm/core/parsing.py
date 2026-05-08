@@ -1,8 +1,9 @@
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, cast
 
-from tgm.core.types import ChatType, Message
+from tgm.core.types import Chat, ChatType, Message
 
 
 @dataclass(frozen=True)
@@ -97,4 +98,29 @@ def build_edit_payload_from_telethon(
         text=text,
         edited_at=edited_at,
         raw_json=raw_json,
+    )
+
+
+def row_to_chat(row: Any) -> Chat:
+    return Chat(
+        chat_id=int(row.chat_id),
+        title=str(row.title),
+        chat_type=cast(ChatType, row.chat_type),
+        is_monitored=bool(row.is_monitored),
+        period_n_minutes=int(row.period_n_minutes),
+        added_at=row.added_at,
+    )
+
+
+def row_to_message(row: Any) -> Message:
+    return Message(
+        chat_id=int(row.chat_id),
+        msg_id=int(row.msg_id),
+        timestamp=row.timestamp,
+        sender_id=row.sender_id,
+        sender_name=row.sender_name,
+        text=row.text,
+        reply_to_msg_id=row.reply_to_msg_id,
+        edited_at=row.edited_at,
+        raw_json=str(row.raw_json or ""),
     )

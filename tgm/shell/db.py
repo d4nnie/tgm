@@ -1,15 +1,14 @@
 import os
-import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
+
+from sqlalchemy import Engine, create_engine, event
+from sqlalchemy.orm import Session, sessionmaker
 
 from tgm.shell.platform import get_user_data_dir
 
 _DB_PATH_ENV_VAR = "TGM_DB_PATH"
 _DB_FILENAME = "db.sqlite"
-
-_PRAGMA_JOURNAL_MODE_WAL = "PRAGMA journal_mode=WAL"
-_PRAGMA_SYNCHRONOUS_NORMAL = "PRAGMA synchronous=NORMAL"
-_PRAGMA_FOREIGN_KEYS_ON = "PRAGMA foreign_keys=ON"
 
 _SCHEMA_VERSION_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -99,6 +98,12 @@ _MIGRATIONS: list[tuple[int, str]] = [
 ]
 
 
+@dataclass(frozen=True)
+class DatabaseHandle:
+    engine: Engine
+    session_factory: sessionmaker[Session]
+
+
 def resolve_db_path() -> Path:
     override = os.environ.get(_DB_PATH_ENV_VAR)
     if override:
@@ -106,21 +111,40 @@ def resolve_db_path() -> Path:
     return get_user_data_dir() / _DB_FILENAME
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
+def open_database() -> DatabaseHandle:
+    db_path = resolve_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path, isolation_level=None)
-    connection.execute(_PRAGMA_JOURNAL_MODE_WAL)
-    connection.execute(_PRAGMA_SYNCHRONOUS_NORMAL)
-    connection.execute(_PRAGMA_FOREIGN_KEYS_ON)
-    return connection
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    _attach_pragmas(engine)
+
+    return DatabaseHandle(
+        engine=engine,
+        session_factory=sessionmaker(engine, expire_on_commit=False),
+    )
 
 
-def migrate(connection: sqlite3.Connection) -> None:
-    connection.execute(_SCHEMA_VERSION_TABLE_DDL)
-    current = connection.execute(_SELECT_CURRENT_SCHEMA_VERSION).fetchone()[0]
+def apply_migrations(engine: Engine) -> None:
+    raw_connection = engine.raw_connection()
+    try:
+        cursor = raw_connection.cursor()
+        cursor.executescript(_SCHEMA_VERSION_TABLE_DDL)
+        current = cursor.execute(_SELECT_CURRENT_SCHEMA_VERSION).fetchone()[0]
+        for version, sql in _MIGRATIONS:
+            if version <= current:
+                continue
+            cursor.executescript(sql)
+            cursor.execute(_INSERT_SCHEMA_VERSION, (version,))
+        raw_connection.commit()
+    finally:
+        raw_connection.close()
 
-    for version, sql in _MIGRATIONS:
-        if version <= current:
-            continue
-        connection.executescript(sql)
-        connection.execute(_INSERT_SCHEMA_VERSION, (version,))
+
+def _attach_pragmas(engine: Engine) -> None:
+    @event.listens_for(engine, "connect")
+    def _set_pragmas(dbapi_connection: object, _connection_record: object) -> None:
+        cursor = dbapi_connection.cursor()  # ty: ignore[unresolved-attribute]
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()

@@ -1,7 +1,7 @@
 import click
 
 from tgm.cli import aboutme, auth, chat, criteria, digest, gui, highlight, llm, watch
-from tgm.shell.db import connect, migrate, resolve_db_path
+from tgm.shell.db import apply_migrations, open_database
 from tgm.shell.platform import ensure_user_data_dir
 
 
@@ -10,18 +10,12 @@ from tgm.shell.platform import ensure_user_data_dir
 def cli_main(context: click.Context) -> None:
     """Telegram Monitor — personal desktop digest of Telegram chats."""
     ensure_user_data_dir()
-    _migrate_database()
+    handle = open_database()
+    apply_migrations(handle.engine)
+    context.obj = handle
 
     if context.invoked_subcommand is None:
         context.invoke(gui.gui_command)
-
-
-def _migrate_database() -> None:
-    connection = connect(resolve_db_path())
-    try:
-        migrate(connection)
-    finally:
-        connection.close()
 
 
 cli_main.add_command(auth.auth_group)

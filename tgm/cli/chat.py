@@ -9,7 +9,7 @@ from tgm.cli.stubs import stub_not_implemented
 from tgm.core.parsing import classify_telethon_entity, extract_entity_display_name
 from tgm.core.types import Chat
 from tgm.shell.client import login
-from tgm.shell.db import connect, resolve_db_path
+from tgm.shell.db import DatabaseHandle
 from tgm.shell.repos import is_chat_monitored, mark_chat_unmonitored, upsert_chat
 
 
@@ -19,28 +19,29 @@ def chat_group() -> None:
 
 
 @chat_group.command(name="list")
-def chat_list() -> None:
+@click.pass_obj
+def chat_list(handle: DatabaseHandle) -> None:
     """Print all dialogs in the account as JSON."""
-    asyncio.run(_run_chat_list())
+    asyncio.run(_run_chat_list(handle))
 
 
 @chat_group.command(name="add")
 @click.argument("chat_id", type=int)
 @click.option("--period", type=int, default=30, help="Per-chat tick period in minutes.")
-def chat_add(chat_id: int, period: int) -> None:
+@click.pass_obj
+def chat_add(handle: DatabaseHandle, chat_id: int, period: int) -> None:
     """Add a chat to the whitelist (no backfill)."""
-    asyncio.run(_run_chat_add(chat_id, period))
+    asyncio.run(_run_chat_add(handle, chat_id, period))
 
 
 @chat_group.command(name="remove")
 @click.argument("chat_id", type=int)
-def chat_remove(chat_id: int) -> None:
+@click.pass_obj
+def chat_remove(handle: DatabaseHandle, chat_id: int) -> None:
     """Remove a chat from the whitelist (history retained)."""
-    connection = connect(resolve_db_path())
-    try:
-        mark_chat_unmonitored(connection, chat_id)
-    finally:
-        connection.close()
+    with handle.session_factory() as session:
+        mark_chat_unmonitored(session, chat_id)
+        session.commit()
     click.echo(json.dumps({"chat_id": chat_id, "is_monitored": False}, ensure_ascii=False))
 
 
@@ -53,30 +54,28 @@ def chat_profile(chat_id: int, description: str | None, period: int | None) -> N
     stub_not_implemented("EPIC-04 (repos)")
 
 
-async def _run_chat_list() -> None:
+async def _run_chat_list(handle: DatabaseHandle) -> None:
     client = await login(make_click_login_callbacks())
-    connection = connect(resolve_db_path())
     try:
-        dialogs_payload = []
-        async for dialog in client.iter_dialogs():
-            dialog_id = int(dialog.id)
-            dialogs_payload.append(
-                {
-                    "chat_id": dialog_id,
-                    "title": extract_entity_display_name(dialog.entity),
-                    "type": classify_telethon_entity(dialog.entity),
-                    "is_monitored": is_chat_monitored(connection, dialog_id),
-                }
-            )
+        with handle.session_factory() as session:
+            dialogs_payload = []
+            async for dialog in client.iter_dialogs():
+                dialog_id = int(dialog.id)
+                dialogs_payload.append(
+                    {
+                        "chat_id": dialog_id,
+                        "title": extract_entity_display_name(dialog.entity),
+                        "type": classify_telethon_entity(dialog.entity),
+                        "is_monitored": is_chat_monitored(session, dialog_id),
+                    }
+                )
         click.echo(json.dumps(dialogs_payload, ensure_ascii=False, indent=2))
     finally:
-        connection.close()
         await client.disconnect()
 
 
-async def _run_chat_add(chat_id: int, period_n_minutes: int) -> None:
+async def _run_chat_add(handle: DatabaseHandle, chat_id: int, period_n_minutes: int) -> None:
     client = await login(make_click_login_callbacks())
-    connection = connect(resolve_db_path())
     try:
         entity = await client.get_entity(chat_id)
         chat = Chat(
@@ -87,7 +86,9 @@ async def _run_chat_add(chat_id: int, period_n_minutes: int) -> None:
             period_n_minutes=period_n_minutes,
             added_at=datetime.now(UTC),
         )
-        upsert_chat(connection, chat)
+        with handle.session_factory() as session:
+            upsert_chat(session, chat)
+            session.commit()
         click.echo(
             json.dumps(
                 {
@@ -101,5 +102,4 @@ async def _run_chat_add(chat_id: int, period_n_minutes: int) -> None:
             )
         )
     finally:
-        connection.close()
         await client.disconnect()
