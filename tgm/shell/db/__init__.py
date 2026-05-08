@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from importlib.resources import files
@@ -7,6 +8,8 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from tgm.shell.platform import get_user_data_dir
+
+logger = logging.getLogger(__name__)
 
 _DB_PATH_ENV_VAR = "TGM_DB_PATH"
 _DB_FILENAME = "db.sqlite"
@@ -60,13 +63,19 @@ def apply_migrations(engine: Engine) -> None:
         cursor.executescript(_SCHEMA_VERSION_TABLE_DDL)
         current_version = cursor.execute(_SELECT_CURRENT_SCHEMA_VERSION).fetchone()[0]
 
+        applied_count = 0
         for version, sql_text in migrations:
             if version <= current_version:
                 continue
             cursor.executescript(sql_text)
             cursor.execute(_INSERT_SCHEMA_VERSION, (version,))
+            logger.info("Applied migration", extra={"version": version})
+            applied_count += 1
 
         raw_connection.commit()
+
+        if applied_count == 0:
+            logger.info("Database schema is up to date", extra={"version": current_version})
     finally:
         raw_connection.close()
 

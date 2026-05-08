@@ -1,5 +1,6 @@
 import contextlib
 import getpass
+import logging
 import os
 import subprocess
 import sys
@@ -7,6 +8,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import platformdirs
+
+logger = logging.getLogger(__name__)
 
 _APP_NAME = "telegram-monitor"
 _CONFIG_FILENAME = "config.toml"
@@ -78,6 +81,7 @@ def _acquire_posix_flock() -> Iterator[None]:
         try:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
+            logger.error("Another instance is already running", extra={"lock_path": str(lock_path)})
             raise SingleInstanceError(f"Another instance is already running (lock file: {lock_path})") from error
 
         lock_file.seek(0)
@@ -85,6 +89,7 @@ def _acquire_posix_flock() -> Iterator[None]:
         lock_file.write(str(os.getpid()))
         lock_file.flush()
 
+        logger.info("Acquired single-instance lock", extra={"lock_path": str(lock_path)})
         yield
 
 
@@ -116,8 +121,10 @@ def _acquire_windows_mutex() -> Iterator[None]:
     if not mutex_handle or last_error == error_already_exists:
         if mutex_handle:
             kernel32.CloseHandle(mutex_handle)
+        logger.error("Another instance is already running", extra={"mutex": _WINDOWS_MUTEX_NAME})
         raise SingleInstanceError(f"Another instance is already running (Windows mutex: {_WINDOWS_MUTEX_NAME})")
 
+    logger.info("Acquired single-instance lock", extra={"mutex": _WINDOWS_MUTEX_NAME})
     try:
         yield
     finally:

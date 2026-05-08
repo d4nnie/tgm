@@ -1,3 +1,4 @@
+import logging
 import os
 import tomllib
 from pathlib import Path
@@ -13,6 +14,8 @@ from tgm.core.config import (
 )
 from tgm.core.types import TelegramCredentials
 from tgm.shell.platform import get_user_data_dir
+
+logger = logging.getLogger(__name__)
 
 _CONFIG_FILENAME = "config.toml"
 
@@ -31,11 +34,13 @@ def load_telegram_credentials() -> TelegramCredentials | None:
 def save_telegram_credentials(credentials: TelegramCredentials) -> None:
     new_config = merge_telegram_credentials(_read_config(), credentials)
     _write_config_atomic(new_config)
+    logger.info("Saved Telegram credentials to config")
 
 
 def save_telegram_phone(phone: str) -> None:
     new_config = merge_telegram_phone(_read_config(), phone)
     _write_config_atomic(new_config)
+    logger.info("Saved Telegram phone to config")
 
 
 def _read_config() -> dict[str, Any]:

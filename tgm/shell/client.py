@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -63,6 +64,8 @@ from tgm.shell.repos import (
 )
 from tgm.shell.retry import with_telethon_guard
 
+logger = logging.getLogger(__name__)
+
 _SESSION_BASENAME = "session"
 _SESSION_EXPIRED_HANDLER_MESSAGE = "Session expired — re-run `tgm auth login`"
 
@@ -90,6 +93,7 @@ class LoginCallbacks:
 
 
 async def login(callbacks: LoginCallbacks, status_callback: StatusCallback) -> TelegramClient:
+    logger.info("Starting Telegram login flow")
     state = create_initial_state()
     client: TelegramClient | None = None
 
@@ -99,6 +103,7 @@ async def login(callbacks: LoginCallbacks, status_callback: StatusCallback) -> T
         if isinstance(action, Finish):
             if client is None:
                 raise AuthorizationFlowError("login completed without a connected Telethon client")
+            logger.info("Telegram login completed")
             return client
 
         client, event = await _execute_action(action, callbacks, status_callback, client)
@@ -204,6 +209,8 @@ def subscribe_to_message_events(client: TelegramClient, session: Session, status
     async def _on_message_edited(event: events.MessageEdited.Event) -> None:
         await _handle_message_edited(session, event, status_callback)
 
+    logger.info("Subscribed to Telegram message events")
+
 
 async def _handle_new_message(
     session: Session, event: events.NewMessage.Event, status_callback: StatusCallback
@@ -257,11 +264,14 @@ async def fetch_dialogs(client: TelegramClient) -> list[ChatDialog]:
     dialogs: list[ChatDialog] = []
     async for dialog in client.iter_dialogs():
         dialogs.append(build_chat_dialog_from_telethon(dialog))
+    logger.info("Fetched Telegram dialogs", extra={"count": len(dialogs)})
     return dialogs
 
 
 async def backfill_messages(client: TelegramClient, session: Session, status_callback: StatusCallback) -> None:
-    for chat_id in list_monitored_chat_ids(session):
+    chat_ids = list_monitored_chat_ids(session)
+    logger.info("Starting backfill for monitored chats", extra={"chats": len(chat_ids)})
+    for chat_id in chat_ids:
         await _backfill_chat(client, session, chat_id, status_callback)
 
 
@@ -272,6 +282,7 @@ async def _backfill_chat(
     if state is None or state.last_msg_id is None:
         return
 
+    inserted_count = 0
     async for telethon_message in client.iter_messages(chat_id, min_id=state.last_msg_id):
         sender = await with_telethon_guard(lambda message=telethon_message: message.get_sender(), status_callback)
         message = build_message_from_telethon(
@@ -282,8 +293,13 @@ async def _backfill_chat(
             fallback_timestamp=datetime.now(UTC),
         )
         insert_message(session, message)
+        inserted_count += 1
 
     session.commit()
+    logger.info(
+        "Backfilled chat",
+        extra={"chat_id": chat_id, "inserted": inserted_count, "since_msg_id": state.last_msg_id},
+    )
 
 
 def _evaluate_telethon_session_argument() -> str:

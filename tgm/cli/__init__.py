@@ -22,7 +22,7 @@ def cli_main(context: click.Context, debug_pii: bool) -> None:
     setup_logging(user_data_dir, debug_pii=debug_pii)
 
     logger = logging.getLogger(__name__)
-    logger.info("cli_started", extra={"command": context.invoked_subcommand or "gui"})
+    logger.info("Starting Telegram Monitor", extra={"command": context.invoked_subcommand or "gui"})
 
     handle = open_database()
     apply_migrations(handle.engine)

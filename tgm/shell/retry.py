@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -13,6 +14,8 @@ from tgm.core.errors import (
     decide_retry_action,
 )
 
+logger = logging.getLogger(__name__)
+
 T = TypeVar("T")
 
 
@@ -26,12 +29,19 @@ async def with_telethon_guard(call_factory: Callable[[], Awaitable[T]], status_c
 
             match action:
                 case RetrySleepAction(seconds, message):
+                    logger.warning(
+                        "Retrying after Telegram error",
+                        extra={"attempt": attempt, "sleep_seconds": seconds, "reason": message},
+                    )
                     status_callback(message)
                     await asyncio.sleep(seconds)
                     attempt += 1
                 case RaiseSessionExpiredAction():
+                    logger.error("Telegram session expired", extra={"attempts": attempt})
                     raise SessionExpiredError("Telegram session is no longer valid; re-run auth login") from error
                 case RaiseNetworkAction():
+                    logger.error("Telegram network error gave up", extra={"attempts": attempt})
                     raise NetworkError(f"network error after {attempt} retries: {error}") from error
                 case ReraiseAction():
+                    logger.error("Unhandled Telegram error", extra={"error_type": type(error).__name__})
                     raise
