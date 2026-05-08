@@ -39,12 +39,12 @@ class MessageRow(Base):
     __tablename__ = "messages"
 
     chat_id: Mapped[int] = mapped_column(primary_key=True)
-    msg_id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column("msg_id", primary_key=True)
     timestamp: Mapped[datetime] = mapped_column("ts")
     sender_id: Mapped[int | None]
     sender_name: Mapped[str | None]
     text: Mapped[str | None]
-    reply_to_msg_id: Mapped[int | None]
+    reply_to_message_id: Mapped[int | None] = mapped_column("reply_to_msg_id")
     edited_at: Mapped[datetime | None]
     raw_json: Mapped[str | None]
 
@@ -82,7 +82,7 @@ class FeedbackRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     chat_id: Mapped[int]
-    msg_ids_json: Mapped[str]
+    message_ids_json: Mapped[str] = mapped_column("msg_ids_json")
     user_comment: Mapped[str | None]
     scope: Mapped[str]
     consumed: Mapped[bool] = mapped_column(default=False)
@@ -94,4 +94,4 @@ class RunStateRow(Base):
 
     scope: Mapped[str] = mapped_column(primary_key=True)
     last_run_at: Mapped[datetime | None]
-    last_msg_id: Mapped[int | None]
+    last_message_id: Mapped[int | None] = mapped_column("last_msg_id")

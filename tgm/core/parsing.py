@@ -19,7 +19,7 @@ def get_global_scope() -> str:
 @dataclass(frozen=True)
 class MessageEditPayload:
     chat_id: int
-    msg_id: int
+    message_id: int
     text: str | None
     edited_at: datetime
     raw_json: str
@@ -76,12 +76,12 @@ def build_message_from_telethon(
 
     return Message(
         chat_id=chat_id,
-        msg_id=int(getattr(telethon_message, "id", 0)),
+        message_id=int(getattr(telethon_message, "id", 0)),
         timestamp=timestamp,
         sender_id=sender_id,
         sender_name=extract_sender_name(sender),
         text=text,
-        reply_to_msg_id=int(reply_to) if reply_to else None,
+        reply_to_message_id=int(reply_to) if reply_to else None,
         edited_at=None,
         raw_json=raw_json,
     )
@@ -104,7 +104,7 @@ def build_edit_payload_from_telethon(
 
     return MessageEditPayload(
         chat_id=chat_id,
-        msg_id=int(getattr(telethon_message, "id", 0)),
+        message_id=int(getattr(telethon_message, "id", 0)),
         text=text,
         edited_at=edited_at,
         raw_json=raw_json,
@@ -125,12 +125,12 @@ def convert_row_to_chat(row: Any) -> Chat:
 def convert_row_to_message(row: Any) -> Message:
     return Message(
         chat_id=int(row.chat_id),
-        msg_id=int(row.msg_id),
+        message_id=int(row.message_id),
         timestamp=row.timestamp,
         sender_id=row.sender_id,
         sender_name=row.sender_name,
         text=row.text,
-        reply_to_msg_id=row.reply_to_msg_id,
+        reply_to_message_id=row.reply_to_message_id,
         edited_at=row.edited_at,
         raw_json=str(row.raw_json or ""),
     )
@@ -140,7 +140,7 @@ def convert_row_to_run_state(row: Any) -> RunState:
     return RunState(
         scope=str(row.scope),
         last_run_at=row.last_run_at,
-        last_msg_id=int(row.last_msg_id) if row.last_msg_id is not None else None,
+        last_message_id=int(row.last_message_id) if row.last_message_id is not None else None,
     )
 
 

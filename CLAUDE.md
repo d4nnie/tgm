@@ -17,7 +17,7 @@
 - Модули и пакеты — all-lowercase, без подчёркиваний. ✅ `prompts.py`, `mainwindow.py`, `chatsettings.py`. ❌ `prompt_builders.py`, `main_window.py`, `per_chat_settings.py`. Если короткое слитное имя нечитаемо — переименуй понятие.
 - Функции и методы начинаются с глагола. Исключение — `@property`-методы (могут быть существительными). ✅ `build_prompt`, `compute_tokens`, `is_due`, `has_highlights`. ❌ `prompt_builder`, `token_count`, `digest_pipeline`.
 - Никаких двойных подчёркиваний в собственном коде: ни `__attr` (name mangling), ни custom dunder-методов. Стандартные dunder'ы языка (`__init__`, `__repr__`, `__eq__`, `__enter__`, `__hash__`) — можно. Приватность — одинарным `_`.
-- Никаких сокращений в идентификаторах. `connection`, не `conn`. `message`, не `msg`. `request`, не `req`. `database`, не `db` для переменной. Исключения — устоявшиеся имена: `chat_id`, `msg_id`, `raw_json`, `idx_*`, `id`; имя модуля `shell/db.py`; имя функции `connect`.
+- Никаких сокращений в идентификаторах. `connection`, не `conn`. `message`, не `msg`. `request`, не `req`. `database`, не `db` для переменной. Исключения — устоявшиеся имена: `chat_id`, `raw_json`, `idx_*`, `id`; имя модуля `shell/db.py`; имя функции `connect`. SQL-колонки могут оставаться `msg_id` / `last_msg_id` / `msg_ids_json` — Python-атрибут моста делает `mapped_column("<col>", …)`.
 
 ## Типизация
 
@@ -70,7 +70,7 @@
 - Root-logger проекта — `tgm`. В каждом модуле — `logger = logging.getLogger(__name__)`. Все handlers и filters навешиваются на root в `shell/logging.py::setup_logging()`. Модульные логгеры — `propagate=True`, без собственных handlers.
 - Сообщения — английская проза с заглавной буквы: `"Applied migration"`, `"Retrying after Telegram error"`. Никаких snake_case event-токенов (`migration_applied`, `telethon_retry`).
 - Структурированные поля — в `extra={...}`: `extra={"version": 1}`, `extra={"attempt": 0, "sleep_seconds": 60}`. KV-formatter добьёт их после прозы: `... INFO Applied migration version=1`.
-- PII не логируется без явного `--debug-pii`. Только метаданные: `chat_id`, `msg_id`, размеры, latency, success. Тексты сообщений, имена, тела промптов — нет.
+- PII не логируется без явного `--debug-pii`. Только метаданные: `chat_id`, `message_id`, размеры, latency, success. Тексты сообщений, имена, тела промптов — нет.
 - При смене состояния backoff'а — одна запись на смену, не на каждый ретрай.
 
 ## Секреты

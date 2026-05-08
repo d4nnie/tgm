@@ -252,7 +252,7 @@ async def _handle_message_edited(
     update_message_edit(
         session,
         chat_id=payload.chat_id,
-        msg_id=payload.msg_id,
+        message_id=payload.message_id,
         text=payload.text,
         edited_at=payload.edited_at,
         raw_json=payload.raw_json,
@@ -279,11 +279,11 @@ async def _backfill_chat(
     client: TelegramClient, session: Session, chat_id: int, status_callback: StatusCallback
 ) -> None:
     state = get_run_state(session, get_chat_scope(chat_id))
-    if state is None or state.last_msg_id is None:
+    if state is None or state.last_message_id is None:
         return
 
     inserted_count = 0
-    async for telethon_message in client.iter_messages(chat_id, min_id=state.last_msg_id):
+    async for telethon_message in client.iter_messages(chat_id, min_id=state.last_message_id):
         sender = await do_with_telethon_guard(lambda message=telethon_message: message.get_sender(), status_callback)
         message = build_message_from_telethon(
             chat_id=chat_id,
@@ -298,7 +298,7 @@ async def _backfill_chat(
     session.commit()
     logger.info(
         "Backfilled chat",
-        extra={"chat_id": chat_id, "inserted": inserted_count, "since_msg_id": state.last_msg_id},
+        extra={"chat_id": chat_id, "inserted": inserted_count, "since_message_id": state.last_message_id},
     )
 
 

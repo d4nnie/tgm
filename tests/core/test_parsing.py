@@ -96,12 +96,12 @@ def test_build_message_combines_required_fields():
 
     assert result == Message(
         chat_id=999,
-        msg_id=42,
+        message_id=42,
         timestamp=datetime(2026, 5, 7, 12, 0, tzinfo=UTC),
         sender_id=100,
         sender_name="Alice",
         text="hello",
-        reply_to_msg_id=None,
+        reply_to_message_id=None,
         edited_at=None,
         raw_json="{}",
     )
@@ -164,7 +164,7 @@ def test_build_message_extracts_reply_to():
         fallback_timestamp=datetime(2020, 1, 1, tzinfo=UTC),
     )
 
-    assert result.reply_to_msg_id == 7
+    assert result.reply_to_message_id == 7
 
 
 def test_build_edit_payload_uses_edit_date_when_present():
@@ -178,7 +178,7 @@ def test_build_edit_payload_uses_edit_date_when_present():
         fallback_edited_at=datetime(1970, 1, 1, tzinfo=UTC),
     )
 
-    assert result == MessageEditPayload(chat_id=999, msg_id=42, text="changed", edited_at=edit_date, raw_json="{}")
+    assert result == MessageEditPayload(chat_id=999, message_id=42, text="changed", edited_at=edit_date, raw_json="{}")
 
 
 def test_build_edit_payload_falls_back_when_edit_date_missing():
@@ -320,12 +320,12 @@ def test_row_to_chat_normalizes_truthy_int_to_bool():
 def test_row_to_message_maps_all_fields():
     row = SimpleNamespace(
         chat_id=42,
-        msg_id=7,
+        message_id=7,
         timestamp=datetime(2026, 5, 8, tzinfo=UTC),
         sender_id=100,
         sender_name="Alice",
         text="hello",
-        reply_to_msg_id=None,
+        reply_to_message_id=None,
         edited_at=None,
         raw_json='{"id":7}',
     )
@@ -334,12 +334,12 @@ def test_row_to_message_maps_all_fields():
 
     assert result == Message(
         chat_id=42,
-        msg_id=7,
+        message_id=7,
         timestamp=datetime(2026, 5, 8, tzinfo=UTC),
         sender_id=100,
         sender_name="Alice",
         text="hello",
-        reply_to_msg_id=None,
+        reply_to_message_id=None,
         edited_at=None,
         raw_json='{"id":7}',
     )
@@ -348,12 +348,12 @@ def test_row_to_message_maps_all_fields():
 def test_row_to_message_treats_null_raw_json_as_empty_string():
     row = SimpleNamespace(
         chat_id=1,
-        msg_id=1,
+        message_id=1,
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         sender_id=None,
         sender_name=None,
         text=None,
-        reply_to_msg_id=None,
+        reply_to_message_id=None,
         edited_at=None,
         raw_json=None,
     )
@@ -377,23 +377,23 @@ def test_row_to_run_state_with_full_cursor():
     row = SimpleNamespace(
         scope="chat:42",
         last_run_at=datetime(2026, 5, 8, tzinfo=UTC),
-        last_msg_id=12345,
+        last_message_id=12345,
     )
 
     assert convert_row_to_run_state(row) == RunState(
         scope="chat:42",
         last_run_at=datetime(2026, 5, 8, tzinfo=UTC),
-        last_msg_id=12345,
+        last_message_id=12345,
     )
 
 
 def test_row_to_run_state_handles_null_cursor():
-    row = SimpleNamespace(scope="chat:1", last_run_at=None, last_msg_id=None)
+    row = SimpleNamespace(scope="chat:1", last_run_at=None, last_message_id=None)
 
     result = convert_row_to_run_state(row)
 
     assert result.last_run_at is None
-    assert result.last_msg_id is None
+    assert result.last_message_id is None
 
 
 def test_build_chat_dialog_for_user():

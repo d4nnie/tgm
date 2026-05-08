@@ -26,12 +26,12 @@ class Chat:
 @dataclass(frozen=True)
 class Message:
     chat_id: int
-    msg_id: int
+    message_id: int
     timestamp: datetime
     sender_id: int | None
     sender_name: str | None
     text: str | None
-    reply_to_msg_id: int | None
+    reply_to_message_id: int | None
     edited_at: datetime | None
     raw_json: str
 
@@ -40,7 +40,7 @@ class Message:
 class RunState:
     scope: str
     last_run_at: datetime | None
-    last_msg_id: int | None
+    last_message_id: int | None
 
 
 @dataclass(frozen=True)

@@ -14,12 +14,12 @@ def insert_message(session: Session, message: Message) -> None:
         sqlite_insert(MessageRow)
         .values(
             chat_id=message.chat_id,
-            msg_id=message.msg_id,
+            msg_id=message.message_id,
             ts=message.timestamp,
             sender_id=message.sender_id,
             sender_name=message.sender_name,
             text=message.text,
-            reply_to_msg_id=message.reply_to_msg_id,
+            reply_to_msg_id=message.reply_to_message_id,
             edited_at=message.edited_at,
             raw_json=message.raw_json,
         )
@@ -32,14 +32,14 @@ def update_message_edit(
     session: Session,
     *,
     chat_id: int,
-    msg_id: int,
+    message_id: int,
     text: str | None,
     edited_at: datetime,
     raw_json: str,
 ) -> None:
     session.execute(
         update(MessageRow)
-        .where(MessageRow.chat_id == chat_id, MessageRow.msg_id == msg_id)
+        .where(MessageRow.chat_id == chat_id, MessageRow.message_id == message_id)
         .values(text=text, edited_at=edited_at, raw_json=raw_json)
     )
 
@@ -97,10 +97,10 @@ def get_run_state(session: Session, scope: str) -> RunState | None:
 def upsert_run_state(session: Session, state: RunState) -> None:
     statement = (
         sqlite_insert(RunStateRow)
-        .values(scope=state.scope, last_run_at=state.last_run_at, last_msg_id=state.last_msg_id)
+        .values(scope=state.scope, last_run_at=state.last_run_at, last_msg_id=state.last_message_id)
         .on_conflict_do_update(
             index_elements=["scope"],
-            set_={"last_run_at": state.last_run_at, "last_msg_id": state.last_msg_id},
+            set_={"last_run_at": state.last_run_at, "last_msg_id": state.last_message_id},
         )
     )
     session.execute(statement)
