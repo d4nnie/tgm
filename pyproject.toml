@@ -32,7 +32,7 @@ build-linux = """
 set -e
 rm -rf build dist AppDir telegram-monitor-x86_64.AppImage
 uv sync --frozen --group build
-uv run pyinstaller --noconfirm --clean --name telegram-monitor --onedir entry.py
+uv run pyinstaller --noconfirm --clean --name telegram-monitor --onedir --collect-data tgm.shell.db.migrations entry.py
 mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
 cp -r dist/telegram-monitor/. AppDir/usr/bin/
 cp packaging/telegram-monitor.desktop AppDir/usr/share/applications/telegram-monitor.desktop
