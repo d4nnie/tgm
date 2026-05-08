@@ -4,9 +4,21 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from tgm.core.parsing import convert_row_to_chat, convert_row_to_chat_profile, convert_row_to_run_state
-from tgm.core.types import Chat, ChatProfile, Message, RunState
-from tgm.shell.orm import ChatProfileRow, ChatRow, MessageRow, RunStateRow, UserProfileRow
+from tgm.core.parsing import (
+    convert_row_to_chat,
+    convert_row_to_chat_profile,
+    convert_row_to_importance_criteria,
+    convert_row_to_run_state,
+)
+from tgm.core.types import Chat, ChatProfile, ImportanceCriteria, Message, RunState
+from tgm.shell.orm import (
+    ChatProfileRow,
+    ChatRow,
+    ImportanceCriterionRow,
+    MessageRow,
+    RunStateRow,
+    UserProfileRow,
+)
 
 _ABOUT_ME_KEY = "about_me"
 
@@ -142,3 +154,15 @@ def upsert_chat_profile_description(session: Session, *, chat_id: int, descripti
 
 def update_chat_period(session: Session, *, chat_id: int, period_n_minutes: int) -> None:
     session.execute(update(ChatRow).where(ChatRow.chat_id == chat_id).values(period_n_minutes=period_n_minutes))
+
+
+def get_active_criteria(session: Session, scope: str) -> ImportanceCriteria | None:
+    row = session.execute(
+        select(ImportanceCriterionRow)
+        .where(ImportanceCriterionRow.scope == scope)
+        .order_by(ImportanceCriterionRow.version.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return convert_row_to_importance_criteria(row)

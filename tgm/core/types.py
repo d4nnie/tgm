@@ -59,6 +59,15 @@ class ChatProfile:
 
 
 @dataclass(frozen=True)
+class ImportanceCriteria:
+    id: int
+    scope: str
+    criteria_text: str
+    version: int
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class LlmProviderConfig:
     provider: LlmProvider
     base_url: str
