@@ -63,8 +63,11 @@ blocks the commit on any failure. Versions are pinned through
   wizard. Nothing is ever bundled into release artefacts.
 - The SQLite database lives at `<user-data-dir>/db.sqlite`. The path
   resolves to `%APPDATA%\telegram-monitor\db.sqlite` on Windows and
-  `$XDG_DATA_HOME/telegram-monitor/db.sqlite` on Linux. Override
-  through `TGM_DB_PATH` for development.
+  `$XDG_DATA_HOME/telegram-monitor/db.sqlite` on Linux. The
+  `TGM_DB_PATH` environment variable overrides the default location;
+  it is used by CI smoke checks and local tests. Do not set it for
+  normal use — your history lives in whatever path you set and is
+  lost if that path is temporary (`/tmp/...`).
 
 ## License
 
