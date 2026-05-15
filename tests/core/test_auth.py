@@ -78,7 +78,7 @@ def test_decide_checks_authorization_when_full_credentials():
     assert decide_next_action(state) == CheckAuthorization(credentials)
 
 
-def test_decide_finishes_immediately_when_authorized_and_no_fresh_data():
+def test_decide_restricts_session_before_finish_for_already_authorized_user():
     credentials = _full_credentials()
     state = replace(
         create_initial_state(),
@@ -86,6 +86,20 @@ def test_decide_finishes_immediately_when_authorized_and_no_fresh_data():
         credentials=credentials,
         authorization_checked=True,
         authorized=True,
+    )
+
+    assert decide_next_action(state) == RestrictSession()
+
+
+def test_decide_finishes_after_already_authorized_session_restricted():
+    credentials = _full_credentials()
+    state = replace(
+        create_initial_state(),
+        credentials_load_attempted=True,
+        credentials=credentials,
+        authorization_checked=True,
+        authorized=True,
+        session_restricted=True,
     )
 
     assert decide_next_action(state) == Finish(credentials)
@@ -412,11 +426,11 @@ def test_full_flow_fresh_user_without_2fa():
     assert decide_next_action(state) == SignInWithCode("+1", "11111")
     state = apply_event(state, SignInCompleted(password_required=False))
 
-    assert decide_next_action(state) == RestrictSession()
-    state = apply_event(state, SessionRestricted())
-
     assert decide_next_action(state) == PersistFullCredentials(expected_credentials)
     state = apply_event(state, CredentialsPersisted())
+
+    assert decide_next_action(state) == RestrictSession()
+    state = apply_event(state, SessionRestricted())
 
     assert decide_next_action(state) == Finish(expected_credentials)
 
@@ -441,11 +455,11 @@ def test_full_flow_fresh_user_with_2fa():
     assert decide_next_action(state) == SignInWithPassword("secret")
     state = apply_event(state, PasswordSignInCompleted())
 
-    assert decide_next_action(state) == RestrictSession()
-    state = apply_event(state, SessionRestricted())
-
     assert decide_next_action(state) == PersistFullCredentials(expected_credentials)
     state = apply_event(state, CredentialsPersisted())
+
+    assert decide_next_action(state) == RestrictSession()
+    state = apply_event(state, SessionRestricted())
 
     assert decide_next_action(state) == Finish(expected_credentials)
 
@@ -459,6 +473,9 @@ def test_full_flow_existing_valid_session():
 
     assert decide_next_action(state) == CheckAuthorization(loaded_credentials)
     state = apply_event(state, AuthorizationChecked(True))
+
+    assert decide_next_action(state) == RestrictSession()
+    state = apply_event(state, SessionRestricted())
 
     assert decide_next_action(state) == Finish(loaded_credentials)
 
@@ -476,9 +493,11 @@ def test_full_flow_env_credentials_need_phone_only():
     state = apply_event(state, CodeRequested())
     state = apply_event(state, SmsCodeProvided("33333"))
     state = apply_event(state, SignInCompleted(password_required=False))
-    state = apply_event(state, SessionRestricted())
 
     assert decide_next_action(state) == PersistPhone("+9")
     state = apply_event(state, CredentialsPersisted())
+
+    assert decide_next_action(state) == RestrictSession()
+    state = apply_event(state, SessionRestricted())
 
     assert decide_next_action(state) == Finish(expected_credentials)

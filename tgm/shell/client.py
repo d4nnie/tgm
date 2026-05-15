@@ -308,3 +308,7 @@ def _evaluate_telethon_session_argument() -> str:
 
 def _evaluate_session_file() -> Path:
     return get_user_data_dir() / f"{_SESSION_BASENAME}.session"
+
+
+def resolve_session_path() -> Path:
+    return _evaluate_session_file()

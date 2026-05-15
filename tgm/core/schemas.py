@@ -44,6 +44,13 @@ class CriteriaRecalcResponse(BaseModel):
     what_changed: str
 
 
+class PingResponse(BaseModel):
+    model_config = _STRICT_PAYLOAD
+
+    answer: str
+
+
 PER_CHAT_RESPONSE_SCHEMA: Final[JsonSchema] = PerChatResponse.model_json_schema()
 GLOBAL_RESPONSE_SCHEMA: Final[JsonSchema] = GlobalResponse.model_json_schema()
 CRITERIA_RECALC_RESPONSE_SCHEMA: Final[JsonSchema] = CriteriaRecalcResponse.model_json_schema()
+PING_RESPONSE_SCHEMA: Final[JsonSchema] = PingResponse.model_json_schema()

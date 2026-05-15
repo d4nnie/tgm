@@ -35,16 +35,18 @@ def ensure_user_data_dir() -> Path:
     config_path = directory / _CONFIG_FILENAME
     if not config_path.exists():
         config_path.touch()
+    restrict_path_access(config_path)
+
+    for session_path in directory.glob("session*"):
+        if session_path.is_file():
+            restrict_path_access(session_path)
 
     return directory
 
 
 def restrict_path_access(path: Path) -> None:
-    """Restrict path access to the current user only.
-
-    POSIX: chmod 0700 for directories, 0600 for files.
-    Windows: icacls with broken inheritance, granting full control to the current user.
-    """
+    # POSIX: chmod 0700 for directories, 0600 for files.
+    # Windows: icacls with broken inheritance, full control to current user.
     if sys.platform == "win32":
         _restrict_path_access_windows(path)
     else:

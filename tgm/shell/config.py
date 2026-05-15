@@ -73,4 +73,7 @@ def _write_config_atomic(config: dict[str, Any]) -> None:
     temp_path = path.parent / f"{path.name}.tmp"
     with open(temp_path, "wb") as file:
         tomli_w.dump(config, file)
+    # On Windows os.chmod is a no-op for 0o600; final permission is healed by
+    # restrict_path_access on next ensure_user_data_dir.
+    os.chmod(temp_path, 0o600)
     os.replace(temp_path, path)

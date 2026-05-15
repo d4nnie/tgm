@@ -4,9 +4,17 @@ from dataclasses import dataclass
 StatusCallback = Callable[[str], None]
 
 _FLOOD_WAIT_ERROR_NAME = "FloodWaitError"
+_FLOOD_WAIT_CAP_SECONDS = 600
 _SESSION_EXPIRED_ERROR_NAMES: frozenset[str] = frozenset(
-    {"AuthKeyError", "AuthKeyUnregisteredError", "UserDeactivatedError"}
+    {
+        "AuthKeyError",
+        "AuthKeyUnregisteredError",
+        "AuthKeyDuplicatedError",
+        "UserDeactivatedError",
+        "UserDeactivatedBanError",
+    }
 )
+_TELETHON_SERVER_ERROR_NAMES: frozenset[str] = frozenset({"ServerError", "RpcCallFailError", "RpcMcgetFailError"})
 _NETWORK_ERROR_TYPES: tuple[type[BaseException], ...] = (
     ConnectionError,
     OSError,
@@ -24,12 +32,21 @@ class NetworkError(RuntimeError):
     pass
 
 
+class FloodWaitTooLongError(RuntimeError):
+    pass
+
+
 class SingleInstanceError(RuntimeError):
     pass
 
 
 @dataclass(frozen=True)
 class FloodWaitOutcome:
+    wait_seconds: int
+
+
+@dataclass(frozen=True)
+class FloodWaitTooLongOutcome:
     wait_seconds: int
 
 
@@ -44,7 +61,7 @@ class NetworkRetryOutcome:
     attempt: int
 
 
-ErrorOutcome = FloodWaitOutcome | SessionExpiredOutcome | NetworkRetryOutcome
+ErrorOutcome = FloodWaitOutcome | FloodWaitTooLongOutcome | SessionExpiredOutcome | NetworkRetryOutcome
 
 
 @dataclass(frozen=True)
@@ -64,29 +81,46 @@ class RaiseNetworkAction:
 
 
 @dataclass(frozen=True)
+class RaiseFloodWaitTooLongAction:
+    wait_seconds: int
+
+
+@dataclass(frozen=True)
 class ReraiseAction:
     pass
 
 
-RetryAction = RetrySleepAction | RaiseSessionExpiredAction | RaiseNetworkAction | ReraiseAction
+RetryAction = (
+    RetrySleepAction | RaiseSessionExpiredAction | RaiseNetworkAction | RaiseFloodWaitTooLongAction | ReraiseAction
+)
 
 
 def classify_telethon_error(error: BaseException, attempt: int) -> ErrorOutcome | None:
     name = type(error).__name__
 
     if name == _FLOOD_WAIT_ERROR_NAME:
-        return FloodWaitOutcome(wait_seconds=int(getattr(error, "seconds", 0)))
+        wait_seconds = int(getattr(error, "seconds", 0))
+        if wait_seconds > _FLOOD_WAIT_CAP_SECONDS:
+            return FloodWaitTooLongOutcome(wait_seconds=wait_seconds)
+        return FloodWaitOutcome(wait_seconds=wait_seconds)
 
     if name in _SESSION_EXPIRED_ERROR_NAMES:
         return SessionExpiredOutcome()
 
+    if name in _TELETHON_SERVER_ERROR_NAMES:
+        return _maybe_network_retry(attempt)
+
     if isinstance(error, _NETWORK_ERROR_TYPES):
-        if attempt >= _MAX_NETWORK_RETRIES:
-            return None
-        wait_seconds = min(2**attempt, _NETWORK_BACKOFF_CAP_SECONDS)
-        return NetworkRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
+        return _maybe_network_retry(attempt)
 
     return None
+
+
+def _maybe_network_retry(attempt: int) -> NetworkRetryOutcome | None:
+    if attempt >= _MAX_NETWORK_RETRIES:
+        return None
+    wait_seconds = min(2**attempt, _NETWORK_BACKOFF_CAP_SECONDS)
+    return NetworkRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
 
 
 def decide_retry_action(error: BaseException, attempt: int) -> RetryAction:
@@ -98,6 +132,8 @@ def decide_retry_action(error: BaseException, attempt: int) -> RetryAction:
                 seconds=wait_seconds,
                 message=f"Throttled by Telegram, retry in {wait_seconds}s",
             )
+        case FloodWaitTooLongOutcome(wait_seconds):
+            return RaiseFloodWaitTooLongAction(wait_seconds=wait_seconds)
         case NetworkRetryOutcome(wait_seconds, attempt_value):
             return RetrySleepAction(
                 seconds=wait_seconds,
@@ -106,6 +142,7 @@ def decide_retry_action(error: BaseException, attempt: int) -> RetryAction:
         case SessionExpiredOutcome():
             return RaiseSessionExpiredAction()
         case None:
-            if isinstance(error, _NETWORK_ERROR_TYPES):
+            name = type(error).__name__
+            if name in _TELETHON_SERVER_ERROR_NAMES or isinstance(error, _NETWORK_ERROR_TYPES):
                 return RaiseNetworkAction()
             return ReraiseAction()

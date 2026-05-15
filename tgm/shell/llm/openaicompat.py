@@ -8,8 +8,10 @@ import httpx
 
 from tgm.core.llm import (
     JsonSchema,
+    LLMUnavailableError,
     build_chat_completions_request,
     check_input_budget,
+    classify_http_outcome,
     parse_chat_completions_response,
 )
 
@@ -33,9 +35,6 @@ class OpenAiCompatibleProvider:
         self._api_key = api_key
         self._model = model
         self._options = dict(options) if options else None
-        # trust_env=False: don't auto-discover system proxies (env vars on POSIX,
-        # registry on Windows). Local Ollama and cloud OpenAI both want a direct
-        # connection; Windows IE auto-detect proxies were 502'ing localhost calls.
         self._client = httpx.AsyncClient(timeout=request_timeout_seconds, trust_env=False)
         self._lock = asyncio.Lock()
 
@@ -59,7 +58,7 @@ class OpenAiCompatibleProvider:
         headers = self._build_headers()
 
         async with self._lock:
-            return await self._post_and_parse(
+            return await self._post_with_retries(
                 url=url,
                 headers=headers,
                 request_body=request_body,
@@ -75,7 +74,7 @@ class OpenAiCompatibleProvider:
             return {"Authorization": f"Bearer {self._api_key}"}
         return {}
 
-    async def _post_and_parse(
+    async def _post_with_retries(
         self,
         *,
         url: str,
@@ -84,35 +83,102 @@ class OpenAiCompatibleProvider:
         prompt_chars: int,
         prompt_tokens_estimated: int,
     ) -> dict:
-        started_at = time.monotonic()
-        try:
-            response = await self._client.post(url, json=request_body, headers=headers)
-            response.raise_for_status()
-            parsed = parse_chat_completions_response(response.json())
-        except Exception:
-            logger.error(
-                "LLM call failed",
-                extra={
-                    "model": self._model,
-                    "prompt_chars": prompt_chars,
-                    "prompt_tokens_est": prompt_tokens_estimated,
-                    "latency_ms": _ms_since(started_at),
-                    "success": False,
-                },
-            )
-            raise
+        attempt = 0
+        last_log_signature: tuple[str, int] | None = None
+        while True:
+            started_at = time.monotonic()
+            status: int | None = None
+            retry_after: int | None = None
+            error_for_raise: Exception | None = None
+            try:
+                response = await self._client.post(url, json=request_body, headers=headers)
+                response.raise_for_status()
+                parsed = parse_chat_completions_response(response.json())
+            except httpx.TimeoutException as error:
+                error_for_raise = error
+            except httpx.HTTPStatusError as error:
+                error_for_raise = error
+                status = error.response.status_code
+                retry_after = _parse_retry_after(error.response.headers.get("Retry-After"))
+            except httpx.HTTPError as error:
+                error_for_raise = error
+            else:
+                if attempt > 0:
+                    logger.info("LLM recovered", extra={"attempt": attempt, "model": self._model})
+                logger.info(
+                    "Called LLM",
+                    extra={
+                        "model": self._model,
+                        "prompt_chars": prompt_chars,
+                        "prompt_tokens_est": prompt_tokens_estimated,
+                        "latency_ms": _ms_since(started_at),
+                        "success": True,
+                    },
+                )
+                return parsed
 
-        logger.info(
-            "Called LLM",
+            outcome = classify_http_outcome(status=status, attempt=attempt, retry_after=retry_after)
+            if outcome is None:
+                logger.error(
+                    "LLM call failed",
+                    extra={
+                        "model": self._model,
+                        "prompt_chars": prompt_chars,
+                        "prompt_tokens_est": prompt_tokens_estimated,
+                        "latency_ms": _ms_since(started_at),
+                        "success": False,
+                        "http_status": status if status is not None else 0,
+                    },
+                )
+                raise LLMUnavailableError(_describe_failure(status, error_for_raise)) from error_for_raise
+
+            last_log_signature = _log_retry_state(
+                attempt=outcome.attempt,
+                wait_seconds=outcome.wait_seconds,
+                status=status,
+                last_signature=last_log_signature,
+                model=self._model,
+            )
+            await asyncio.sleep(outcome.wait_seconds)
+            attempt += 1
+
+
+def _log_retry_state(
+    *,
+    attempt: int,
+    wait_seconds: int,
+    status: int | None,
+    last_signature: tuple[str, int] | None,
+    model: str,
+) -> tuple[str, int]:
+    category = "transport" if status is None else f"http_{status}"
+    signature = (category, wait_seconds)
+    if signature != last_signature:
+        logger.warning(
+            "Retrying LLM call",
             extra={
-                "model": self._model,
-                "prompt_chars": prompt_chars,
-                "prompt_tokens_est": prompt_tokens_estimated,
-                "latency_ms": _ms_since(started_at),
-                "success": True,
+                "model": model,
+                "attempt": attempt,
+                "sleep_seconds": wait_seconds,
+                "category": category,
             },
         )
-        return parsed
+    return signature
+
+
+def _parse_retry_after(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _describe_failure(status: int | None, error: Exception | None) -> str:
+    if status is None:
+        return f"LLM HTTP transport error: {error}"
+    return f"LLM HTTP {status}: {error}"
 
 
 def _ms_since(started_at: float) -> int:

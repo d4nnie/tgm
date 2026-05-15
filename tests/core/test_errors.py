@@ -2,14 +2,18 @@ import pytest
 
 from tgm.core.errors import (
     FloodWaitOutcome,
+    FloodWaitTooLongError,
+    FloodWaitTooLongOutcome,
     NetworkError,
     NetworkRetryOutcome,
+    RaiseFloodWaitTooLongAction,
     RaiseNetworkAction,
     RaiseSessionExpiredAction,
     ReraiseAction,
     RetrySleepAction,
     SessionExpiredError,
     SessionExpiredOutcome,
+    SingleInstanceError,
     classify_telethon_error,
     decide_retry_action,
 )
@@ -128,3 +132,104 @@ def test_decide_retry_action_raises_network_after_attempts_exhausted():
 
 def test_decide_retry_action_reraises_unknown_error():
     assert decide_retry_action(ValueError("boom"), attempt=0) == ReraiseAction()
+
+
+class _FakeAuthKeyDuplicatedError(Exception):
+    pass
+
+
+_FakeAuthKeyDuplicatedError.__name__ = "AuthKeyDuplicatedError"
+
+
+class _FakeUserDeactivatedBanError(Exception):
+    pass
+
+
+_FakeUserDeactivatedBanError.__name__ = "UserDeactivatedBanError"
+
+
+def test_classify_auth_key_duplicated_returns_session_expired():
+    assert classify_telethon_error(_FakeAuthKeyDuplicatedError(), attempt=0) == SessionExpiredOutcome()
+
+
+def test_classify_user_deactivated_ban_returns_session_expired():
+    assert classify_telethon_error(_FakeUserDeactivatedBanError(), attempt=0) == SessionExpiredOutcome()
+
+
+@pytest.mark.parametrize("error_name", ["ServerError", "RpcCallFailError", "RpcMcgetFailError"])
+def test_classify_telethon_server_error_returns_network_retry(error_name: str):
+    class _FakeError(Exception):
+        pass
+
+    _FakeError.__name__ = error_name
+
+    outcome = classify_telethon_error(_FakeError(), attempt=0)
+
+    assert isinstance(outcome, NetworkRetryOutcome)
+
+
+def test_classify_server_error_exhausted_returns_none():
+    class _FakeError(Exception):
+        pass
+
+    _FakeError.__name__ = "ServerError"
+
+    assert classify_telethon_error(_FakeError(), attempt=5) is None
+
+
+def test_decide_retry_action_sleeps_for_server_error():
+    class _FakeError(Exception):
+        pass
+
+    _FakeError.__name__ = "ServerError"
+
+    action = decide_retry_action(_FakeError(), attempt=1)
+
+    assert action == RetrySleepAction(seconds=2, message="Network error, retry in 2s (attempt 2/5)")
+
+
+def test_decide_retry_action_raises_network_for_exhausted_server_error():
+    class _FakeError(Exception):
+        pass
+
+    _FakeError.__name__ = "ServerError"
+
+    assert decide_retry_action(_FakeError(), attempt=5) == RaiseNetworkAction()
+
+
+def test_classify_flood_wait_under_cap_returns_retryable_outcome():
+    outcome = classify_telethon_error(_FakeFloodWaitError(seconds=600), attempt=0)
+
+    assert outcome == FloodWaitOutcome(wait_seconds=600)
+
+
+def test_classify_flood_wait_over_cap_returns_too_long_outcome():
+    outcome = classify_telethon_error(_FakeFloodWaitError(seconds=601), attempt=0)
+
+    assert outcome == FloodWaitTooLongOutcome(wait_seconds=601)
+
+
+def test_classify_flood_wait_day_returns_too_long_outcome():
+    outcome = classify_telethon_error(_FakeFloodWaitError(seconds=86400), attempt=0)
+
+    assert outcome == FloodWaitTooLongOutcome(wait_seconds=86400)
+
+
+def test_decide_retry_action_short_flood_sleeps():
+    action = decide_retry_action(_FakeFloodWaitError(seconds=30), attempt=0)
+
+    assert action == RetrySleepAction(seconds=30, message="Throttled by Telegram, retry in 30s")
+
+
+def test_decide_retry_action_long_flood_raises():
+    action = decide_retry_action(_FakeFloodWaitError(seconds=86400), attempt=0)
+
+    assert action == RaiseFloodWaitTooLongAction(wait_seconds=86400)
+
+
+def test_flood_wait_too_long_error_is_runtime_error():
+    assert issubclass(FloodWaitTooLongError, RuntimeError)
+
+
+def test_single_instance_error_is_runtime_error():
+    assert issubclass(SingleInstanceError, RuntimeError)

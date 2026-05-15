@@ -1,27 +1,20 @@
 import logging
 import logging.handlers
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tgm.core.logging_filter import is_field_allowed
+
 _LOG_FILENAME = "app.log"
-_FILE_HANDLER_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+_FILE_HANDLER_MAX_BYTES = 10 * 1024 * 1024
 _FILE_HANDLER_BACKUP_COUNT = 3
 
+_TGM_LOGGER_NAME = "tgm"
 _THIRD_PARTY_LOGGER_NAMES = ("telethon", "httpx", "sqlalchemy.engine")
 
-# Field names redacted by default — PII per NFR-SEC-3. Keep minimal here;
-# real list expands with EPIC-07/08 when message/highlight pipelines log.
-_PII_REDACTED_FIELDS = frozenset(
-    {
-        "text",
-        "sender_name",
-        "user_comment",
-        "prompt",
-        "raw_json",
-    }
-)
-_PII_REDACTION_PLACEHOLDER = "<redacted>"
+_REDACTION_PLACEHOLDER = "<redacted>"
 
 _RESERVED_LOG_RECORD_ATTRIBUTES = frozenset(
     {
@@ -51,8 +44,11 @@ _RESERVED_LOG_RECORD_ATTRIBUTES = frozenset(
     }
 )
 
+_PYDANTIC_INPUT_VALUE_PATTERN = re.compile(r"input_value=.*?(?=,\s*input_type|$)", flags=re.DOTALL)
+_HTTPX_RESPONSE_PATTERN = re.compile(r"response:.*$", flags=re.DOTALL)
 
-class PiiRedactionFilter(logging.Filter):
+
+class TgmPiiFilter(logging.Filter):
     def __init__(self, redact: bool) -> None:
         super().__init__()
         self.redact = redact
@@ -60,13 +56,19 @@ class PiiRedactionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if not self.redact:
             return True
-        for field_name in _PII_REDACTED_FIELDS:
-            if field_name in record.__dict__:
-                record.__dict__[field_name] = _PII_REDACTION_PLACEHOLDER
+        for field_name in list(record.__dict__.keys()):
+            if field_name in _RESERVED_LOG_RECORD_ATTRIBUTES or field_name.startswith("_"):
+                continue
+            if not is_field_allowed(field_name):
+                record.__dict__[field_name] = _REDACTION_PLACEHOLDER
         return True
 
 
 class KeyValueFormatter(logging.Formatter):
+    def __init__(self, *, redact_tracebacks: bool) -> None:
+        super().__init__()
+        self._redact_tracebacks = redact_tracebacks
+
     def format(self, record: logging.LogRecord) -> str:
         timestamp = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
         head = f"{timestamp} [{record.name}] {record.levelname} {record.getMessage()}"
@@ -78,24 +80,32 @@ class KeyValueFormatter(logging.Formatter):
             head = f"{head}\n{self.formatException(record.exc_info)}"
         return head
 
+    def formatException(self, ei) -> str:  # noqa: N802, ANN001  # logging.Formatter API name
+        raw = super().formatException(ei)
+        if not self._redact_tracebacks:
+            return raw
+        raw = _PYDANTIC_INPUT_VALUE_PATTERN.sub("input_value=<redacted>", raw)
+        raw = _HTTPX_RESPONSE_PATTERN.sub("response: <redacted>", raw)
+        return raw
+
 
 def setup_logging(user_data_dir: Path, *, debug_pii: bool = False) -> None:
-    formatter = KeyValueFormatter()
-    pii_filter = PiiRedactionFilter(redact=not debug_pii)
+    formatter = KeyValueFormatter(redact_tracebacks=not debug_pii)
+    pii_filter = TgmPiiFilter(redact=not debug_pii)
 
     handlers = [
-        _build_rotating_file_handler(user_data_dir / _LOG_FILENAME, formatter, pii_filter),
-        _build_stderr_handler(formatter, pii_filter),
+        _build_rotating_file_handler(user_data_dir / _LOG_FILENAME, formatter),
+        _build_stderr_handler(formatter),
     ]
 
     _install_root_handlers(handlers, level=logging.INFO)
+    _attach_pii_filter_to_tgm_namespace(pii_filter)
     _quiet_third_party_loggers()
 
 
 def _build_rotating_file_handler(
     log_path: Path,
     formatter: logging.Formatter,
-    pii_filter: logging.Filter,
 ) -> logging.Handler:
     handler = logging.handlers.RotatingFileHandler(
         log_path,
@@ -104,17 +114,12 @@ def _build_rotating_file_handler(
         encoding="utf-8",
     )
     handler.setFormatter(formatter)
-    handler.addFilter(pii_filter)
     return handler
 
 
-def _build_stderr_handler(
-    formatter: logging.Formatter,
-    pii_filter: logging.Filter,
-) -> logging.Handler:
+def _build_stderr_handler(formatter: logging.Formatter) -> logging.Handler:
     handler = logging.StreamHandler(stream=sys.stderr)
     handler.setFormatter(formatter)
-    handler.addFilter(pii_filter)
     return handler
 
 
@@ -126,6 +131,14 @@ def _install_root_handlers(handlers: list[logging.Handler], level: int) -> None:
         root_logger.removeHandler(existing_handler)
     for handler in handlers:
         root_logger.addHandler(handler)
+
+
+def _attach_pii_filter_to_tgm_namespace(pii_filter: logging.Filter) -> None:
+    tgm_logger = logging.getLogger(_TGM_LOGGER_NAME)
+    for existing in list(tgm_logger.filters):
+        if isinstance(existing, TgmPiiFilter):
+            tgm_logger.removeFilter(existing)
+    tgm_logger.addFilter(pii_filter)
 
 
 def _quiet_third_party_loggers() -> None:

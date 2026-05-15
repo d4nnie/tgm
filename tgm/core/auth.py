@@ -220,6 +220,9 @@ def decide_next_action(state: AuthorizationState) -> Action:
     if pending is not None:
         return pending
 
+    if not state.session_restricted:
+        return RestrictSession()
+
     return Finish(credentials)
 
 
@@ -257,8 +260,6 @@ def _decide_login_dance(state: AuthorizationState, credentials: TelegramCredenti
         if not state.password_sign_in_attempted:
             return SignInWithPassword(state.password)
 
-    if not state.session_restricted:
-        return RestrictSession()
     return None
 
 

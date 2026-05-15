@@ -2,11 +2,11 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import cast
 
 import click
 from sqlalchemy.orm import Session
 
+from tgm.core.errors import SingleInstanceError
 from tgm.core.parsing import parse_criteria_response
 from tgm.core.prompts import build_criteria_recalc_prompt
 from tgm.core.schemas import CRITERIA_RECALC_RESPONSE_SCHEMA
@@ -14,7 +14,7 @@ from tgm.core.types import Feedback, FeedbackSample
 from tgm.shell.config import load_llm_provider_config
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.llm import build_provider
-from tgm.shell.llm.openaicompat import OpenAiCompatibleProvider
+from tgm.shell.platform import acquire_exclusive_lock
 from tgm.shell.repos import (
     get_active_criteria,
     get_criteria_by_version,
@@ -76,7 +76,11 @@ def criteria_show(handle: DatabaseHandle, scope: str) -> None:
 @click.pass_obj
 def criteria_recalc(handle: DatabaseHandle, scope: str) -> None:
     """Recalculate criteria from accumulated feedback."""
-    asyncio.run(_run_recalc(handle, scope))
+    try:
+        with acquire_exclusive_lock("recalc"):
+            asyncio.run(_run_recalc(handle, scope))
+    except SingleInstanceError as error:
+        raise click.ClickException(f"criteria recalc already running: {error}") from error
 
 
 @criteria_group.command(name="rollback")
@@ -108,7 +112,7 @@ def criteria_rollback(handle: DatabaseHandle, scope: str, version: int) -> None:
 
 async def _run_recalc(handle: DatabaseHandle, scope: str) -> None:
     config = load_llm_provider_config()
-    provider = cast(OpenAiCompatibleProvider, build_provider(config))
+    provider = build_provider(config)
     try:
         inputs = _gather_recalc_inputs(handle, scope)
         system, user = build_criteria_recalc_prompt(
@@ -131,6 +135,7 @@ async def _run_recalc(handle: DatabaseHandle, scope: str) -> None:
                 criteria_text=parsed.new_criteria_text,
                 now=datetime.now(UTC),
             )
+            mark_feedback_consumed(session, inputs.consumed_feedback_ids)
             session.commit()
         click.echo(
             json.dumps(
@@ -160,9 +165,6 @@ def _gather_recalc_inputs(handle: DatabaseHandle, scope: str) -> _RecalcInputs:
         samples = [_to_feedback_sample(session, feedback) for feedback in unconsumed]
         about_me = get_user_profile_about_me(session) or ""
         consumed_ids = [feedback.id for feedback in unconsumed]
-        # Mark consumed up-front so concurrent runs don't race; commit before the LLM call.
-        mark_feedback_consumed(session, consumed_ids)
-        session.commit()
     return _RecalcInputs(
         old_version=current.version,
         current_text=current.criteria_text,

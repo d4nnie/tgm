@@ -1,4 +1,3 @@
-import asyncio
 import json
 from typing import Any
 
@@ -7,10 +6,12 @@ import pytest
 from tgm.core.llm import (
     JsonSchema,
     LLMBudgetExceededError,
-    LLMProvider,
+    LLMHttpRetryOutcome,
     LLMResponseError,
+    LLMUnavailableError,
     build_chat_completions_request,
     check_input_budget,
+    classify_http_outcome,
     parse_chat_completions_response,
 )
 from tgm.core.tokens import estimate_tokens
@@ -23,73 +24,54 @@ _PER_CHAT_SCHEMA: JsonSchema = {
 }
 
 
-class _FakeProvider:
-    def __init__(self, response: dict[str, Any]) -> None:
-        self._response = response
-        self.received_system: str | None = None
-        self.received_user: str | None = None
-        self.received_schema: JsonSchema | None = None
-        self.received_max_input_tokens: int | None = None
-
-    async def call_json(
-        self,
-        system: str,
-        user: str,
-        schema: JsonSchema,
-        max_input_tokens: int,
-    ) -> dict:
-        self.received_system = system
-        self.received_user = user
-        self.received_schema = schema
-        self.received_max_input_tokens = max_input_tokens
-        return self._response
-
-
-def _call(provider: _FakeProvider, **kwargs: Any) -> dict:
-    return asyncio.run(provider.call_json(**kwargs))
-
-
-def test_fake_provider_satisfies_protocol_runtime_check():
-    fake = _FakeProvider({"summary": "ok"})
-
-    assert isinstance(fake, LLMProvider)
-
-
-def test_call_json_returns_dict_matching_schema_keys():
-    fake = _FakeProvider({"summary": "all quiet"})
-
-    result = _call(
-        fake,
-        system="sys",
-        user="msg",
-        schema=_PER_CHAT_SCHEMA,
-        max_input_tokens=1024,
-    )
-
-    assert isinstance(result, dict)
-    for key in _PER_CHAT_SCHEMA["required"]:
-        assert key in result
-
-
-def test_call_json_forwards_arguments():
-    fake = _FakeProvider({"summary": "x"})
-
-    _call(
-        fake,
-        system="be helpful",
-        user="hello",
-        schema=_PER_CHAT_SCHEMA,
-        max_input_tokens=2048,
-    )
-
-    assert fake.received_system == "be helpful"
-    assert fake.received_user == "hello"
-    assert fake.received_schema is _PER_CHAT_SCHEMA
-    assert fake.received_max_input_tokens == 2048
-
-
 def test_llm_budget_exceeded_error_is_runtime_error():
     assert issubclass(LLMBudgetExceededError, RuntimeError)
+
+
+def test_llm_unavailable_error_is_runtime_error():
+    assert issubclass(LLMUnavailableError, RuntimeError)
+
+
+def test_classify_http_outcome_transport_error_returns_retry():
+    outcome = classify_http_outcome(status=None, attempt=0, retry_after=None)
+
+    assert outcome == LLMHttpRetryOutcome(wait_seconds=1, attempt=0)
+
+
+def test_classify_http_outcome_503_returns_retry():
+    outcome = classify_http_outcome(status=503, attempt=1, retry_after=None)
+
+    assert outcome == LLMHttpRetryOutcome(wait_seconds=2, attempt=1)
+
+
+def test_classify_http_outcome_429_respects_retry_after():
+    outcome = classify_http_outcome(status=429, attempt=0, retry_after=10)
+
+    assert outcome == LLMHttpRetryOutcome(wait_seconds=10, attempt=0)
+
+
+def test_classify_http_outcome_429_caps_retry_after_at_60s():
+    outcome = classify_http_outcome(status=429, attempt=0, retry_after=600)
+
+    assert outcome == LLMHttpRetryOutcome(wait_seconds=60, attempt=0)
+
+
+def test_classify_http_outcome_429_falls_back_to_backoff_without_retry_after():
+    outcome = classify_http_outcome(status=429, attempt=2, retry_after=None)
+
+    assert outcome == LLMHttpRetryOutcome(wait_seconds=4, attempt=2)
+
+
+def test_classify_http_outcome_400_fails_fast():
+    assert classify_http_outcome(status=400, attempt=0, retry_after=None) is None
+
+
+def test_classify_http_outcome_404_fails_fast():
+    assert classify_http_outcome(status=404, attempt=0, retry_after=None) is None
+
+
+def test_classify_http_outcome_returns_none_after_max_retries():
+    assert classify_http_outcome(status=503, attempt=3, retry_after=None) is None
 
 
 def test_json_schema_alias_accepts_plain_dict():

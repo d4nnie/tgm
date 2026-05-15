@@ -1,12 +1,16 @@
 import json
 from collections.abc import Mapping
-from typing import Any, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any
 
 from tgm.core.tokens import estimate_tokens
 
 JsonSchema = dict[str, Any]
 
 _RESPONSE_SCHEMA_NAME = "tgm_response"
+_LLM_MAX_RETRIES = 3
+_LLM_BACKOFF_CAP_SECONDS = 60
+_LLM_RETRY_AFTER_CAP_SECONDS = 60
 
 
 class LLMBudgetExceededError(RuntimeError):
@@ -17,15 +21,40 @@ class LLMResponseError(RuntimeError):
     pass
 
 
-@runtime_checkable
-class LLMProvider(Protocol):
-    async def call_json(
-        self,
-        system: str,
-        user: str,
-        schema: JsonSchema,
-        max_input_tokens: int,
-    ) -> dict: ...
+class LLMUnavailableError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class LLMHttpRetryOutcome:
+    wait_seconds: int
+    attempt: int
+
+
+def classify_http_outcome(
+    status: int | None,
+    attempt: int,
+    retry_after: int | None,
+) -> LLMHttpRetryOutcome | None:
+    if attempt >= _LLM_MAX_RETRIES:
+        return None
+
+    if status is None:
+        wait_seconds = min(2**attempt, _LLM_BACKOFF_CAP_SECONDS)
+        return LLMHttpRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
+
+    if status == 429:
+        if retry_after is None or retry_after <= 0:
+            wait_seconds = min(2**attempt, _LLM_BACKOFF_CAP_SECONDS)
+        else:
+            wait_seconds = min(retry_after, _LLM_RETRY_AFTER_CAP_SECONDS)
+        return LLMHttpRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
+
+    if 500 <= status < 600:
+        wait_seconds = min(2**attempt, _LLM_BACKOFF_CAP_SECONDS)
+        return LLMHttpRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
+
+    return None
 
 
 def build_chat_completions_request(
