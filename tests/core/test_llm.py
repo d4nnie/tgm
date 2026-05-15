@@ -152,6 +152,21 @@ def test_parse_chat_completions_response_raises_on_invalid_json():
         parse_chat_completions_response(payload)
 
 
+def test_parse_chat_completions_response_raises_when_choices_is_not_a_list():
+    with pytest.raises(LLMResponseError, match="'choices' is not a list"):
+        parse_chat_completions_response({"choices": "not a list"})
+
+
+def test_parse_chat_completions_response_raises_when_first_choice_is_not_a_mapping():
+    with pytest.raises(LLMResponseError, match=r"'choices\[0\]' is not an object"):
+        parse_chat_completions_response({"choices": [42]})
+
+
+def test_parse_chat_completions_response_raises_when_message_is_not_a_mapping():
+    with pytest.raises(LLMResponseError, match=r"'choices\[0\]\.message' is not an object"):
+        parse_chat_completions_response({"choices": [{"message": "string"}]})
+
+
 def test_check_input_budget_returns_estimated_tokens_when_within_limit():
     system = "system prompt"
     user = "user prompt"

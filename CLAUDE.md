@@ -6,10 +6,11 @@
 
 - Python 3.11+. `requires-python = ">=3.11"`.
 - `uv` — единственный пакетный менеджер. `uv.lock` коммитится. Запуск — через `uv run …`.
-- `ruff` — линтер: `E`, `W`, `F`, `I`, `UP`, `B`, `SIM`, `N`, `S101`. Локальные исключения — только `# noqa: <code>` с краткой причиной.
+- `ruff` — линтер: `E`, `W`, `F`, `I`, `UP`, `B`, `SIM`, `N`, `C90`, `PLR0915`, `PLR0916`, `PLR1702`, `S101`. Сложность ограничена: `C901 max-complexity = 8` (цикломатическая), `PLR0915 max-statements = 10` (операторов в функции), `PLR0916 max-bool-expr = 3` (булевых операндов в выражении), `PLR1702 max-nested-blocks = 3` (вложенность блоков). Локальные исключения — только `# noqa: <code>` с краткой причиной.
 - `ruff format` — форматтер. Длина строки 120.
+- `flake8` + `wemake-python-styleguide` — селективно, только `WPS221` (Jones complexity, `max-line-complexity = 12`) и `WPS231` (cognitive complexity, `max-cognitive-score = 12`). Конфиг — `.flake8`. Тесты, `tgm/shell/repos.py` (SQLAlchemy chains) и `tgm/cli/*.py` (Click dispatch) выключены через `per-file-ignores`. Эти две правила ловят плотные однострочники, которые Ruff не выражает напрямую.
 - `ty` — primary type checker. Временный fallback на `mypy --strict` допустим.
-- `pre-commit` хуки (`ruff check`, `ruff format --check`, `ty check`) обязаны проходить. Без `--no-verify`.
+- `pre-commit` хуки (`ruff check`, `ruff format --check`, `ty check`, `flake8`) обязаны проходить. Без `--no-verify`.
 
 ## Именование
 

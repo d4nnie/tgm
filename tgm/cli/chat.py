@@ -16,6 +16,7 @@ from tgm.shell.orm import ChatRow
 from tgm.shell.platform import acquire_exclusive_lock, require_single_instance
 from tgm.shell.repos import (
     get_chat_profile,
+    is_chat_known,
     is_chat_monitored,
     list_chats,
     mark_chat_unmonitored,
@@ -94,25 +95,21 @@ def chat_remove(handle: DatabaseHandle, chat_id: int) -> None:
 def chat_profile(handle: DatabaseHandle, chat_id: int, description: str | None, period: int | None) -> None:
     """Show or edit chat profile."""
     with handle.session_factory() as session:
-        if (description is not None or period is not None) and not _chat_exists(session, chat_id):
-            raise click.ClickException(f"chat_id={chat_id} not in whitelist; run `chat add {chat_id}` first")
-        if description is not None:
-            upsert_chat_profile_description(
-                session,
-                chat_id=chat_id,
-                description_prompt=description,
-                now=datetime.now(UTC),
-            )
-        if period is not None:
-            update_chat_period(session, chat_id=chat_id, period_n_minutes=period)
-        if description is not None or period is not None:
-            session.commit()
+        _maybe_update_chat_profile(session, chat_id, description, period)
         payload = _read_chat_profile_payload(session, chat_id)
     click.echo(json.dumps(payload, ensure_ascii=False))
 
 
-def _chat_exists(session: Session, chat_id: int) -> bool:
-    return session.execute(select(ChatRow.chat_id).where(ChatRow.chat_id == chat_id)).scalar_one_or_none() is not None
+def _maybe_update_chat_profile(session: Session, chat_id: int, description: str | None, period: int | None) -> None:
+    if description is None and period is None:
+        return
+    if not is_chat_known(session, chat_id):
+        raise click.ClickException(f"chat_id={chat_id} not in whitelist; run `chat add {chat_id}` first")
+    if description is not None:
+        upsert_chat_profile_description(session, chat_id=chat_id, description_prompt=description, now=datetime.now(UTC))
+    if period is not None:
+        update_chat_period(session, chat_id=chat_id, period_n_minutes=period)
+    session.commit()
 
 
 def _read_chat_profile_payload(session: Session, chat_id: int) -> dict[str, object]:
@@ -153,31 +150,38 @@ async def _run_chat_add(handle: DatabaseHandle, chat_id: int, period_n_minutes: 
     client = await login(make_click_login_callbacks(), status_callback)
     try:
         entity = await _fetch_entity(client, chat_id, status_callback)
-        chat = Chat(
-            chat_id=chat_id,
-            title=extract_entity_display_name(entity),
-            chat_type=classify_telethon_entity(entity),
-            is_monitored=True,
-            period_n_minutes=period_n_minutes,
-            added_at=datetime.now(UTC),
-        )
-        with handle.session_factory() as session:
-            upsert_chat(session, chat)
-            session.commit()
-        click.echo(
-            json.dumps(
-                {
-                    "chat_id": chat.chat_id,
-                    "title": chat.title,
-                    "type": chat.chat_type,
-                    "is_monitored": True,
-                    "period_n_minutes": chat.period_n_minutes,
-                },
-                ensure_ascii=False,
-            )
-        )
+        chat = _build_chat_for_add(chat_id, entity, period_n_minutes)
+        _persist_chat_add(handle, chat)
+        click.echo(json.dumps(_render_chat_add_payload(chat), ensure_ascii=False))
     finally:
         await client.disconnect()
+
+
+def _build_chat_for_add(chat_id: int, entity: object, period_n_minutes: int) -> Chat:
+    return Chat(
+        chat_id=chat_id,
+        title=extract_entity_display_name(entity),
+        chat_type=classify_telethon_entity(entity),
+        is_monitored=True,
+        period_n_minutes=period_n_minutes,
+        added_at=datetime.now(UTC),
+    )
+
+
+def _persist_chat_add(handle: DatabaseHandle, chat: Chat) -> None:
+    with handle.session_factory() as session:
+        upsert_chat(session, chat)
+        session.commit()
+
+
+def _render_chat_add_payload(chat: Chat) -> dict[str, object]:
+    return {
+        "chat_id": chat.chat_id,
+        "title": chat.title,
+        "type": chat.chat_type,
+        "is_monitored": True,
+        "period_n_minutes": chat.period_n_minutes,
+    }
 
 
 async def _fetch_entity(client: object, chat_id: int, status_callback: StatusCallback) -> object:

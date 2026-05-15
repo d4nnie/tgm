@@ -58,9 +58,6 @@ class NetworkRetryOutcome:
     attempt: int
 
 
-ErrorOutcome = FloodWaitOutcome | FloodWaitTooLongOutcome | SessionExpiredOutcome | NetworkRetryOutcome
-
-
 @dataclass(frozen=True)
 class RetrySleepAction:
     seconds: int
@@ -92,7 +89,9 @@ RetryAction = (
 )
 
 
-def classify_telethon_error(error: BaseException, attempt: int) -> ErrorOutcome | None:
+def classify_telethon_error(
+    error: BaseException, attempt: int
+) -> FloodWaitOutcome | FloodWaitTooLongOutcome | SessionExpiredOutcome | NetworkRetryOutcome | None:
     name = type(error).__name__
 
     if name == _FLOOD_WAIT_ERROR_NAME:
@@ -109,7 +108,6 @@ def classify_telethon_error(error: BaseException, attempt: int) -> ErrorOutcome 
 
     if isinstance(error, _NETWORK_ERROR_TYPES):
         return _maybe_network_retry(attempt)
-
     return None
 
 

@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+from tgm.core.prompts import render_message
 from tgm.core.tokens import estimate_tokens
 from tgm.core.types import Message, PerChatDigestPart
 
@@ -12,29 +13,50 @@ def split_into_chunks(
 ) -> list[list[Message]]:
     if not messages:
         return []
-
     chunks: list[list[Message]] = []
     current: list[Message] = []
     current_tokens = 0
-
     for message in messages:
-        message_tokens = estimate_tokens(_render_for_estimate(message))
-        if current and _would_exceed_limits(
-            current_count=len(current),
-            current_tokens=current_tokens,
-            extra_tokens=message_tokens,
-            max_messages=max_messages_per_chunk,
-            max_tokens=max_tokens_per_chunk,
-        ):
-            chunks.append(current)
-            current = []
-            current_tokens = 0
-        current.append(message)
-        current_tokens += message_tokens
-
+        current, current_tokens = _absorb_message(
+            chunks, current, current_tokens, message, max_messages_per_chunk, max_tokens_per_chunk
+        )
     if current:
         chunks.append(current)
     return chunks
+
+
+def _absorb_message(
+    chunks: list[list[Message]],
+    current: list[Message],
+    current_tokens: int,
+    message: Message,
+    max_messages: int,
+    max_tokens: int,
+) -> tuple[list[Message], int]:
+    message_tokens = estimate_tokens(render_message(message))
+    if _should_flush(current, current_tokens, message_tokens, max_messages, max_tokens):
+        chunks.append(current)
+        current, current_tokens = [], 0
+    current.append(message)
+    return current, current_tokens + message_tokens
+
+
+def _should_flush(
+    current: list[Message],
+    current_tokens: int,
+    extra_tokens: int,
+    max_messages: int,
+    max_tokens: int,
+) -> bool:
+    if not current:
+        return False
+    return _would_exceed_limits(
+        current_count=len(current),
+        current_tokens=current_tokens,
+        extra_tokens=extra_tokens,
+        max_messages=max_messages,
+        max_tokens=max_tokens,
+    )
 
 
 def trim_to_budget(
@@ -50,8 +72,9 @@ def trim_to_budget(
         if len(candidates) <= 1:
             return parts
         oldest = candidates[0]
-        stripped = sum(estimate_tokens(highlight.why) for highlight in parts[oldest].highlights)
-        parts[oldest] = replace(parts[oldest], highlights=[])
+        oldest_highlights = parts[oldest].highlights
+        stripped = sum(estimate_tokens(highlight.why) for highlight in oldest_highlights)
+        parts[oldest] = replace(parts[oldest], highlights=())
         total -= stripped
     return parts
 
@@ -67,12 +90,6 @@ def _would_exceed_limits(
     if current_count + 1 > max_messages:
         return True
     return current_tokens + extra_tokens > max_tokens
-
-
-def _render_for_estimate(message: Message) -> str:
-    sender = message.sender_name or "unknown"
-    text = message.text if message.text is not None else "<no text>"
-    return f"[message_id={message.message_id}] {sender} ({message.timestamp.isoformat()}): {text}"
 
 
 def _estimate_parts_tokens(parts: list[PerChatDigestPart]) -> int:

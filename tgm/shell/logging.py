@@ -11,9 +11,7 @@ _LOG_FILENAME = "app.log"
 _FILE_HANDLER_MAX_BYTES = 10 * 1024 * 1024
 _FILE_HANDLER_BACKUP_COUNT = 3
 
-_TGM_LOGGER_NAME = "tgm"
 _THIRD_PARTY_LOGGER_NAMES = ("telethon", "httpx", "sqlalchemy.engine")
-
 _REDACTION_PLACEHOLDER = "<redacted>"
 
 _RESERVED_LOG_RECORD_ATTRIBUTES = frozenset(
@@ -70,10 +68,10 @@ class KeyValueFormatter(logging.Formatter):
         self._redact_tracebacks = redact_tracebacks
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-        head = f"{timestamp} [{record.name}] {record.levelname} {record.getMessage()}"
-
+        timestamp = _format_log_timestamp(record.created)
+        head = _format_log_head(timestamp, record)
         extras = _render_extra_fields(record)
+
         if extras:
             head = f"{head} {extras}"
         if record.exc_info:
@@ -84,6 +82,7 @@ class KeyValueFormatter(logging.Formatter):
         raw = super().formatException(ei)
         if not self._redact_tracebacks:
             return raw
+
         raw = _PYDANTIC_INPUT_VALUE_PATTERN.sub("input_value=<redacted>", raw)
         raw = _HTTPX_RESPONSE_PATTERN.sub("response: <redacted>", raw)
         return raw
@@ -92,14 +91,17 @@ class KeyValueFormatter(logging.Formatter):
 def setup_logging(user_data_dir: Path, *, debug_pii: bool = False) -> None:
     formatter = KeyValueFormatter(redact_tracebacks=not debug_pii)
     pii_filter = TgmPiiFilter(redact=not debug_pii)
-
+    # Attach the filter to each handler — filters on logger nodes do NOT fire
+    # for records that propagate up from child loggers, so handler-level
+    # attachment is the only way to redact records from tgm.core.*, tgm.cli.*, etc.
     handlers = [
         _build_rotating_file_handler(user_data_dir / _LOG_FILENAME, formatter),
         _build_stderr_handler(formatter),
     ]
 
+    for handler in handlers:
+        handler.addFilter(pii_filter)
     _install_root_handlers(handlers, level=logging.INFO)
-    _attach_pii_filter_to_tgm_namespace(pii_filter)
     _quiet_third_party_loggers()
 
 
@@ -133,14 +135,6 @@ def _install_root_handlers(handlers: list[logging.Handler], level: int) -> None:
         root_logger.addHandler(handler)
 
 
-def _attach_pii_filter_to_tgm_namespace(pii_filter: logging.Filter) -> None:
-    tgm_logger = logging.getLogger(_TGM_LOGGER_NAME)
-    for existing in list(tgm_logger.filters):
-        if isinstance(existing, TgmPiiFilter):
-            tgm_logger.removeFilter(existing)
-    tgm_logger.addFilter(pii_filter)
-
-
 def _quiet_third_party_loggers() -> None:
     for logger_name in _THIRD_PARTY_LOGGER_NAMES:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
@@ -149,15 +143,34 @@ def _quiet_third_party_loggers() -> None:
 def _render_extra_fields(record: logging.LogRecord) -> str:
     parts: list[str] = []
     for key, value in record.__dict__.items():
-        if key in _RESERVED_LOG_RECORD_ATTRIBUTES or key.startswith("_"):
+        if not is_field_allowed(key):
             continue
         parts.append(f"{key}={_quote_value(value)}")
     return " ".join(parts)
 
 
+def _format_log_timestamp(epoch_seconds: float) -> str:
+    record_time = datetime.fromtimestamp(epoch_seconds, tz=UTC)
+    formatted = record_time.strftime("%Y-%m-%dT%H:%M:%S.%f")
+    return f"{formatted[:-3]}Z"
+
+
+def _format_log_head(timestamp: str, record: logging.LogRecord) -> str:
+    return f"{timestamp} [{record.name}] {record.levelname} {record.getMessage()}"  # noqa: WPS221  # log-line template; interpolation chain is the readable form
+
+
 def _quote_value(value: object) -> str:
     text = str(value)
-    if not text or any(character.isspace() for character in text) or '"' in text or "=" in text:
+    if _needs_quoting(text):
         escaped = text.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     return text
+
+
+def _needs_quoting(text: str) -> bool:
+    if text:
+        has_whitespace = any(character.isspace() for character in text)
+        has_quote = '"' in text
+        has_equals = "=" in text
+        return has_whitespace or has_quote or has_equals
+    return True

@@ -26,7 +26,13 @@ build-backend = "hatchling.build"
 packages = ["tgm"]
 
 [dependency-groups]
-dev = ["pre-commit>=4.6.0", "pytest>=9.0.3", "ruff>=0.15.12", "ty>=0.0.34"]
+dev = [
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "ruff>=0.15.12",
+    "ty>=0.0.34",
+    "wemake-python-styleguide>=1.6.2",
+]
 build = ["pyinstaller>=6.16.0", "taskipy>=1.14.1"]
 
 [tool.taskipy.tasks]
@@ -49,13 +55,24 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "UP", "B", "SIM", "N", "C90", "S101"]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "N", "C90", "PLR0915", "PLR0916", "PLR1702", "S101"]
+preview = true
+explicit-preview-rules = true
 
 [tool.ruff.lint.mccabe]
-max-complexity = 10
+max-complexity = 8
+
+[tool.ruff.lint.pylint]
+max-statements = 10
+max-bool-expr = 3
+max-nested-blocks = 3
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+# Tests can assert freely; flow-walk E2E tests legitimately accumulate
+# statements (arrange-act-assert across many states); shell/platform.py
+# contains Win32 ctypes glue whose decomposition would scatter the API binding.
+"tests/**" = ["S101", "PLR0915"]
+"tgm/shell/platform.py" = ["PLR0915"]
 
 [tool.ty.environment]
 python-version = "3.11"

@@ -65,7 +65,7 @@ def _digest_part(chat_id: int, summary: str, highlight_count: int) -> PerChatDig
         chat_id=chat_id,
         title=f"chat-{chat_id}",
         summary=summary,
-        highlights=[PerChatHighlightPart(message_id=index, why="x" * 30) for index in range(highlight_count)],
+        highlights=tuple(PerChatHighlightPart(message_id=index, why="x" * 30) for index in range(highlight_count)),
     )
 
 
@@ -85,7 +85,7 @@ def test_trim_to_budget_strips_oldest_highlights_first():
 
     result = trim_to_budget(parts, max_tokens=80)
 
-    assert result[0].highlights == []
+    assert result[0].highlights == ()
     assert len(result[1].highlights) == 20
 
 
@@ -97,7 +97,7 @@ def test_trim_to_budget_preserves_newest_highlights_even_when_over_budget():
 
     result = trim_to_budget(parts, max_tokens=10)
 
-    assert result[0].highlights == []
+    assert result[0].highlights == ()
     assert len(result[1].highlights) == 10
 
 

@@ -89,13 +89,13 @@ def _section(header: str, body: str) -> str:
 def _render_messages(messages: list[Message]) -> str:
     if not messages:
         return ""
-    return "\n".join(_render_message(message) for message in messages)
+    return "\n".join(render_message(message) for message in messages)
 
 
-def _render_message(message: Message) -> str:
+def render_message(message: Message) -> str:
     sender = message.sender_name or "unknown"
     text = message.text if message.text is not None else "<no text>"
-    return f"[message_id={message.message_id}] {sender} ({message.timestamp.isoformat()}): {text}"
+    return f"[message_id={message.message_id}] {sender} ({message.timestamp.isoformat()}): {text}"  # noqa: WPS221  # message render template; interpolation chain is the readable form
 
 
 def _render_digest_parts(parts: list[PerChatDigestPart]) -> str:
@@ -119,6 +119,6 @@ def _render_feedback_samples(samples: list[FeedbackSample]) -> str:
     blocks = []
     for index, sample in enumerate(samples, start=1):
         comment = json.dumps(sample.user_comment or "", ensure_ascii=False)
-        rendered_messages = "\n    ".join(_render_message(message) for message in sample.messages)
+        rendered_messages = "\n    ".join(render_message(message) for message in sample.messages)
         blocks.append(f"[sample {index}]\n  comment: {comment}\n  messages:\n    {rendered_messages}")
     return "\n".join(blocks)

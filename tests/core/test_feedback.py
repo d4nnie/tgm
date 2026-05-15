@@ -22,7 +22,7 @@ def _feedback(feedback_id: int, chat_id: int, message_ids: list[int]) -> Feedbac
     return Feedback(
         id=feedback_id,
         chat_id=chat_id,
-        message_ids=message_ids,
+        message_ids=tuple(message_ids),
         user_comment=None,
         scope="chat",
         consumed=False,

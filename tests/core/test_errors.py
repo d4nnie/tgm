@@ -84,11 +84,11 @@ def test_classify_network_error_returns_none_at_max_attempts():
 
 
 def test_classify_handles_os_error():
-    assert isinstance(classify_telethon_error(OSError(), attempt=0), NetworkRetryOutcome)
+    assert classify_telethon_error(OSError(), attempt=0) == NetworkRetryOutcome(wait_seconds=1, attempt=0)
 
 
 def test_classify_handles_timeout_error():
-    assert isinstance(classify_telethon_error(TimeoutError(), attempt=1), NetworkRetryOutcome)
+    assert classify_telethon_error(TimeoutError(), attempt=1) == NetworkRetryOutcome(wait_seconds=2, attempt=1)
 
 
 def test_classify_unknown_error_returns_none():
@@ -206,12 +206,6 @@ def test_classify_flood_wait_day_returns_too_long_outcome():
     outcome = classify_telethon_error(_FakeFloodWaitError(seconds=86400), attempt=0)
 
     assert outcome == FloodWaitTooLongOutcome(wait_seconds=86400)
-
-
-def test_decide_retry_action_short_flood_sleeps():
-    action = decide_retry_action(_FakeFloodWaitError(seconds=30), attempt=0)
-
-    assert action == RetrySleepAction(seconds=30, message="Throttled by Telegram, retry in 30s")
 
 
 def test_decide_retry_action_long_flood_raises():

@@ -47,7 +47,6 @@ def open_database() -> DatabaseHandle:
 
     engine = create_engine(f"sqlite:///{db_path}")
     _attach_pragmas(engine)
-
     return DatabaseHandle(
         engine=engine,
         session_factory=sessionmaker(engine, expire_on_commit=False),
@@ -56,28 +55,33 @@ def open_database() -> DatabaseHandle:
 
 def apply_migrations(engine: Engine) -> None:
     migrations = _load_migrations()
-
     raw_connection = engine.raw_connection()
     try:
-        cursor = raw_connection.cursor()
-        cursor.executescript(_SCHEMA_VERSION_TABLE_DDL)
-        current_version = cursor.execute(_SELECT_CURRENT_SCHEMA_VERSION).fetchone()[0]
-
-        applied_count = 0
-        for version, sql_text in migrations:
-            if version <= current_version:
-                continue
-            atomic_sql = compose_atomic_migration(sql_text, version)
-            cursor.executescript(atomic_sql)
-            logger.info("Applied migration", extra={"version": version})
-            applied_count += 1
-
-        raw_connection.commit()
-
-        if applied_count == 0:
-            logger.info("Database schema is up to date", extra={"version": current_version})
+        _apply_migrations_on_connection(raw_connection, migrations)
     finally:
         raw_connection.close()
+
+
+def _apply_migrations_on_connection(raw_connection: object, migrations: list[tuple[int, str]]) -> None:
+    cursor = raw_connection.cursor()  # ty: ignore[unresolved-attribute]
+    cursor.executescript(_SCHEMA_VERSION_TABLE_DDL)
+    current_version = cursor.execute(_SELECT_CURRENT_SCHEMA_VERSION).fetchone()[0]
+    applied_count = _apply_pending_migrations(cursor, migrations, current_version)
+    raw_connection.commit()  # ty: ignore[unresolved-attribute]
+    if applied_count == 0:
+        logger.info("Database schema is up to date", extra={"version": current_version})
+
+
+def _apply_pending_migrations(cursor: object, migrations: list[tuple[int, str]], current_version: int) -> int:  # noqa: WPS221  # parameterised-type signature
+    applied_count = 0
+    for version, sql_text in migrations:
+        if version <= current_version:
+            continue
+        atomic_sql = compose_atomic_migration(sql_text, version)
+        cursor.executescript(atomic_sql)  # ty: ignore[unresolved-attribute]
+        logger.info("Applied migration", extra={"version": version})
+        applied_count += 1
+    return applied_count
 
 
 def _load_migrations() -> list[tuple[int, str]]:

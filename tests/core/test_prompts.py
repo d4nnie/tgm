@@ -64,7 +64,8 @@ def test_build_per_chat_prompt_handles_empty_messages():
         messages=[],
     )
 
-    assert "=== New messages (chronological) ===\n\n\n" in user
+    assert "=== New messages (chronological) ===" in user
+    assert "[message_id=" not in user
 
 
 def test_build_per_chat_prompt_renders_none_text_and_sender():
@@ -88,13 +89,13 @@ def test_build_global_prompt_golden():
                 chat_id=111,
                 title="Team X",
                 summary="Обсудили деплой.",
-                highlights=[PerChatHighlightPart(message_id=42, why="блокер")],
+                highlights=(PerChatHighlightPart(message_id=42, why="блокер"),),
             ),
             PerChatDigestPart(
                 chat_id=222,
                 title="Team Y",
                 summary="Без новостей.",
-                highlights=[],
+                highlights=(),
             ),
         ],
     )

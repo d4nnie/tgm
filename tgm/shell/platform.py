@@ -44,7 +44,6 @@ def ensure_user_data_dir() -> Path:
     for session_path in directory.glob("session*"):
         if session_path.is_file():
             restrict_path_access(session_path)
-
     return directory
 
 
@@ -98,21 +97,26 @@ def _acquire_posix_flock(name: str) -> Iterator[None]:
     lock_path = _resolve_posix_lock_path(name)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.touch(exist_ok=True)
-
     with open(lock_path, "r+") as lock_file:
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            logger.error("Another instance is already running", extra={"lock_path": str(lock_path)})
-            raise SingleInstanceError(f"Another instance is already running (lock file: {lock_path})") from error
-
-        lock_file.seek(0)
-        lock_file.truncate()
-        lock_file.write(str(os.getpid()))
-        lock_file.flush()
-
+        _try_flock(lock_file, lock_path, fcntl)
+        _write_pid_to_lock(lock_file)
         logger.info("Acquired exclusive lock", extra={"lock_path": str(lock_path)})
         yield
+
+
+def _try_flock(lock_file: object, lock_path: Path, fcntl_module: object) -> None:
+    try:
+        fcntl_module.flock(lock_file.fileno(), fcntl_module.LOCK_EX | fcntl_module.LOCK_NB)  # ty: ignore[unresolved-attribute]
+    except BlockingIOError as error:
+        logger.error("Another instance is already running", extra={"lock_path": str(lock_path)})
+        raise SingleInstanceError(f"Another instance is already running (lock file: {lock_path})") from error
+
+
+def _write_pid_to_lock(lock_file: object) -> None:
+    lock_file.seek(0)  # ty: ignore[unresolved-attribute]
+    lock_file.truncate()  # ty: ignore[unresolved-attribute]
+    lock_file.write(str(os.getpid()))  # ty: ignore[unresolved-attribute]
+    lock_file.flush()  # ty: ignore[unresolved-attribute]
 
 
 def _resolve_posix_lock_path(name: str) -> Path:
@@ -123,13 +127,33 @@ def _resolve_posix_lock_path(name: str) -> Path:
     return get_user_data_dir() / lock_filename
 
 
+_WINDOWS_ERROR_ALREADY_EXISTS = 183
+
+
 @contextlib.contextmanager
 def _acquire_windows_mutex(name: str) -> Iterator[None]:
     import ctypes
-    from ctypes import wintypes
 
-    error_already_exists = 183
+    kernel32 = _bind_windows_mutex_api()
     mutex_name = f"{_APP_NAME}-{name}"
+    mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
+    last_error = ctypes.GetLastError()  # ty: ignore[unresolved-attribute]
+    if not mutex_handle or last_error == _WINDOWS_ERROR_ALREADY_EXISTS:
+        if mutex_handle:
+            kernel32.CloseHandle(mutex_handle)
+        logger.error("Another instance is already running", extra={"mutex": mutex_name})
+        raise SingleInstanceError(f"Another instance is already running (Windows mutex: {mutex_name})")
+    logger.info("Acquired exclusive lock", extra={"mutex": mutex_name})
+    try:
+        yield
+    finally:
+        kernel32.ReleaseMutex(mutex_handle)
+        kernel32.CloseHandle(mutex_handle)
+
+
+def _bind_windows_mutex_api():  # noqa: ANN201 — opaque ctypes WinDLL handle; no useful annotation
+    import ctypes
+    from ctypes import wintypes
 
     kernel32 = ctypes.windll.kernel32  # ty: ignore[unresolved-attribute]
     kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
@@ -138,19 +162,4 @@ def _acquire_windows_mutex(name: str) -> Iterator[None]:
     kernel32.ReleaseMutex.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
-
-    mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
-    last_error = ctypes.GetLastError()  # ty: ignore[unresolved-attribute]
-
-    if not mutex_handle or last_error == error_already_exists:
-        if mutex_handle:
-            kernel32.CloseHandle(mutex_handle)
-        logger.error("Another instance is already running", extra={"mutex": mutex_name})
-        raise SingleInstanceError(f"Another instance is already running (Windows mutex: {mutex_name})")
-
-    logger.info("Acquired exclusive lock", extra={"mutex": mutex_name})
-    try:
-        yield
-    finally:
-        kernel32.ReleaseMutex(mutex_handle)
-        kernel32.CloseHandle(mutex_handle)
+    return kernel32

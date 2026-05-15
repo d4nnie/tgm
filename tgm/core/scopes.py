@@ -1,10 +1,14 @@
-_GLOBAL_SCOPE = "global"
+GLOBAL_SCOPE = "global"
 _CHAT_PREFIX = "chat:"
 
 
+def get_chat_scope(chat_id: int) -> str:
+    return f"{_CHAT_PREFIX}{chat_id}"
+
+
 def parse_chat_scope(scope: str) -> tuple[str, int | None]:
-    if scope == _GLOBAL_SCOPE:
-        return (_GLOBAL_SCOPE, None)
+    if scope == GLOBAL_SCOPE:
+        return (GLOBAL_SCOPE, None)
     if scope.startswith(_CHAT_PREFIX):
         suffix = scope[len(_CHAT_PREFIX) :]
         try:

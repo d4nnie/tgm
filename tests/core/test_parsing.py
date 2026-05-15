@@ -10,18 +10,21 @@ from tgm.core.parsing import (
     build_edit_payload_from_telethon,
     build_message_from_telethon,
     classify_telethon_entity,
-    convert_row_to_chat,
-    convert_row_to_message,
-    convert_row_to_run_state,
     extract_entity_display_name,
     extract_sender_name,
-    get_chat_scope,
-    get_global_scope,
+    serialize_telethon_message,
+)
+from tgm.core.responses import (
     parse_criteria_response,
     parse_global_response,
     parse_per_chat_response,
-    serialize_telethon_message,
 )
+from tgm.core.rows import (
+    convert_row_to_chat,
+    convert_row_to_message,
+    convert_row_to_run_state,
+)
+from tgm.core.scopes import get_chat_scope
 from tgm.core.types import Chat, ChatDialog, Message, RunState
 
 
@@ -374,7 +377,9 @@ def test_chat_scope_handles_negative_id():
 
 
 def test_global_scope_constant():
-    assert get_global_scope() == "global"
+    from tgm.core.scopes import GLOBAL_SCOPE
+
+    assert GLOBAL_SCOPE == "global"
 
 
 def test_row_to_run_state_with_full_cursor():
@@ -481,6 +486,14 @@ def test_parse_per_chat_response_raises_on_empty_highlight_why():
         )
 
 
+def test_parse_per_chat_response_raises_on_empty_updated_rolling_summary():
+    with pytest.raises(LLMResponseError, match="updated_rolling_summary"):
+        parse_per_chat_response(
+            _per_chat_payload(updated_rolling_summary="   "),
+            known_message_ids={42},
+        )
+
+
 def test_parse_per_chat_response_wraps_validation_error():
     with pytest.raises(LLMResponseError, match="PerChatResponse schema"):
         parse_per_chat_response({"summary": "x", "highlights": []}, known_message_ids=set())
@@ -550,7 +563,7 @@ def test_parse_criteria_response_wraps_validation_error():
 
 
 def test_convert_row_to_feedback_parses_message_ids_json():
-    from tgm.core.parsing import convert_row_to_feedback
+    from tgm.core.rows import convert_row_to_feedback
 
     row = SimpleNamespace(
         id=42,
@@ -566,12 +579,12 @@ def test_convert_row_to_feedback_parses_message_ids_json():
 
     assert feedback.id == 42
     assert feedback.chat_id == 100
-    assert feedback.message_ids == [1, 2, 3]
+    assert feedback.message_ids == (1, 2, 3)
     assert feedback.consumed is False
 
 
 def test_convert_row_to_feedback_treats_none_json_as_empty_list():
-    from tgm.core.parsing import convert_row_to_feedback
+    from tgm.core.rows import convert_row_to_feedback
 
     row = SimpleNamespace(
         id=1,
@@ -585,12 +598,12 @@ def test_convert_row_to_feedback_treats_none_json_as_empty_list():
 
     feedback = convert_row_to_feedback(row)
 
-    assert feedback.message_ids == []
+    assert feedback.message_ids == ()
     assert feedback.consumed is True
 
 
 def test_convert_row_to_feedback_treats_empty_string_json_as_empty_list():
-    from tgm.core.parsing import convert_row_to_feedback
+    from tgm.core.rows import convert_row_to_feedback
 
     row = SimpleNamespace(
         id=1,
@@ -604,11 +617,11 @@ def test_convert_row_to_feedback_treats_empty_string_json_as_empty_list():
 
     feedback = convert_row_to_feedback(row)
 
-    assert feedback.message_ids == []
+    assert feedback.message_ids == ()
 
 
 def test_convert_row_to_importance_criteria_coerces_types():
-    from tgm.core.parsing import convert_row_to_importance_criteria
+    from tgm.core.rows import convert_row_to_importance_criteria
 
     row = SimpleNamespace(
         id="7",
@@ -626,7 +639,7 @@ def test_convert_row_to_importance_criteria_coerces_types():
 
 
 def test_convert_row_to_chat_profile_falls_back_to_empty_strings():
-    from tgm.core.parsing import convert_row_to_chat_profile
+    from tgm.core.rows import convert_row_to_chat_profile
 
     row = SimpleNamespace(
         chat_id=99,

@@ -257,6 +257,13 @@ def test_extract_llm_provider_config_treats_empty_string_api_key_env_as_none():
     assert result.api_key_env is None
 
 
+def test_extract_llm_provider_config_rejects_non_string_api_key_env():
+    config = {"llm": _full_llm_section(api_key_env=42)}
+
+    with pytest.raises(ValueError, match=r"llm\.api_key_env"):
+        extract_llm_provider_config_from_config(config)
+
+
 def test_extract_llm_provider_config_raises_when_section_missing():
     with pytest.raises(ValueError, match=r"\[llm\]"):
         extract_llm_provider_config_from_config({})
@@ -308,7 +315,7 @@ def test_default_llm_config_section_parses_back_to_local_ollama_preset():
         model="gpt-oss:20b",
         api_key_env=None,
         options={"num_ctx": 24576},
-        allow_hosts=[],
+        allow_hosts=(),
     )
 
 
@@ -367,7 +374,7 @@ def test_extract_llm_provider_config_accepts_https_host_with_allow_hosts():
     result = extract_llm_provider_config_from_config({"llm": section})
 
     assert result.base_url == "https://api.openai.com/v1"
-    assert result.allow_hosts == ["api.openai.com"]
+    assert result.allow_hosts == ("api.openai.com",)
 
 
 def test_extract_llm_provider_config_rejects_non_list_allow_hosts():

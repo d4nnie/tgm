@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
@@ -73,7 +73,7 @@ class ImportanceCriteria:
 class Feedback:
     id: int
     chat_id: int
-    message_ids: list[int]
+    message_ids: tuple[int, ...]
     user_comment: str | None
     scope: Literal["chat", "global"]
     consumed: bool
@@ -87,7 +87,7 @@ class LlmProviderConfig:
     model: str
     api_key_env: str | None = None
     options: dict[str, Any] | None = None
-    allow_hosts: list[str] = field(default_factory=list)
+    allow_hosts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -101,7 +101,7 @@ class PerChatDigestPart:
     chat_id: int
     title: str
     summary: str
-    highlights: list[PerChatHighlightPart]
+    highlights: tuple[PerChatHighlightPart, ...]
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,11 @@ def pick_chats_due(
     now: datetime,
     last_run_by_chat: dict[int, datetime],
 ) -> list[Chat]:
-    return [chat for chat in chats if chat.is_monitored and is_chat_due(chat, now, last_run_by_chat.get(chat.chat_id))]
+    def is_pickable(chat: Chat) -> bool:
+        last_run_at = last_run_by_chat.get(chat.chat_id)
+        return chat.is_monitored and is_chat_due(chat, now, last_run_at)
+
+    return [chat for chat in chats if is_pickable(chat)]
 
 
 def merge_summary_parts(parts: list[str]) -> str:

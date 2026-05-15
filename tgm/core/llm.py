@@ -38,23 +38,30 @@ def classify_http_outcome(
 ) -> LLMHttpRetryOutcome | None:
     if attempt >= _LLM_MAX_RETRIES:
         return None
+    wait_seconds = _wait_seconds_for_status(status, attempt, retry_after)
+    if wait_seconds is None:
+        return None
+    return LLMHttpRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
 
+
+def _wait_seconds_for_status(status: int | None, attempt: int, retry_after: int | None) -> int | None:  # noqa: WPS221  # parameterised-type signature
     if status is None:
-        wait_seconds = min(2**attempt, _LLM_BACKOFF_CAP_SECONDS)
-        return LLMHttpRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
-
+        return _exponential_backoff(attempt)
     if status == 429:
-        if retry_after is None or retry_after <= 0:
-            wait_seconds = min(2**attempt, _LLM_BACKOFF_CAP_SECONDS)
-        else:
-            wait_seconds = min(retry_after, _LLM_RETRY_AFTER_CAP_SECONDS)
-        return LLMHttpRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
-
+        return _retry_after_seconds(attempt, retry_after)
     if 500 <= status < 600:
-        wait_seconds = min(2**attempt, _LLM_BACKOFF_CAP_SECONDS)
-        return LLMHttpRetryOutcome(wait_seconds=wait_seconds, attempt=attempt)
-
+        return _exponential_backoff(attempt)
     return None
+
+
+def _exponential_backoff(attempt: int) -> int:
+    return min(2**attempt, _LLM_BACKOFF_CAP_SECONDS)
+
+
+def _retry_after_seconds(attempt: int, retry_after: int | None) -> int:
+    if retry_after is None or retry_after <= 0:
+        return _exponential_backoff(attempt)
+    return min(retry_after, _LLM_RETRY_AFTER_CAP_SECONDS)
 
 
 def build_chat_completions_request(
@@ -80,15 +87,19 @@ def build_chat_completions_request(
             },
         },
     }
+
     if options:
         request["options"] = dict(options)
     return request
 
 
 def parse_chat_completions_response(payload: Mapping[str, Any]) -> dict[str, Any]:
-    if not isinstance(payload, Mapping):
-        raise LLMResponseError("Response payload is not an object")
+    first_choice = _extract_first_choice(payload)
+    content = _extract_message_content(first_choice)
+    return _decode_json_content(content)
 
+
+def _extract_first_choice(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     choices = payload.get("choices")
     if not isinstance(choices, list):
         raise LLMResponseError("Response 'choices' is not a list")
@@ -98,7 +109,10 @@ def parse_chat_completions_response(payload: Mapping[str, Any]) -> dict[str, Any
     first_choice = choices[0]
     if not isinstance(first_choice, Mapping):
         raise LLMResponseError("Response 'choices[0]' is not an object")
+    return first_choice
 
+
+def _extract_message_content(first_choice: Mapping[str, Any]) -> str:
     message = first_choice.get("message")
     if not isinstance(message, Mapping):
         raise LLMResponseError("Response 'choices[0].message' is not an object")
@@ -106,7 +120,10 @@ def parse_chat_completions_response(payload: Mapping[str, Any]) -> dict[str, Any
     content = message.get("content")
     if not isinstance(content, str):
         raise LLMResponseError("Response 'choices[0].message.content' is not a string")
+    return content
 
+
+def _decode_json_content(content: str) -> dict[str, Any]:
     try:
         return json.loads(content)
     except json.JSONDecodeError as error:

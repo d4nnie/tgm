@@ -1,11 +1,11 @@
 import json
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from tgm.core.parsing import (
+from tgm.core.rows import (
     convert_row_to_chat,
     convert_row_to_chat_profile,
     convert_row_to_feedback,
@@ -64,6 +64,8 @@ def update_message_edit(
 
 
 def upsert_chat(session: Session, chat: Chat) -> None:
+    # On conflict we refresh title/type/is_monitored but NOT period_n_minutes —
+    # a re-add must not clobber a user's `chat profile --period` setting.
     statement = (
         sqlite_insert(ChatRow)
         .values(
@@ -80,7 +82,6 @@ def upsert_chat(session: Session, chat: Chat) -> None:
                 "title": chat.title,
                 "type": chat.chat_type,
                 "is_monitored": chat.is_monitored,
-                "period_n_minutes": chat.period_n_minutes,
             },
         )
     )
@@ -94,6 +95,10 @@ def mark_chat_unmonitored(session: Session, chat_id: int) -> None:
 def is_chat_monitored(session: Session, chat_id: int) -> bool:
     flag = session.execute(select(ChatRow.is_monitored).where(ChatRow.chat_id == chat_id)).scalar_one_or_none()
     return bool(flag) if flag is not None else False
+
+
+def is_chat_known(session: Session, chat_id: int) -> bool:
+    return session.execute(select(ChatRow.chat_id).where(ChatRow.chat_id == chat_id)).scalar_one_or_none() is not None
 
 
 def list_monitored_chat_ids(session: Session) -> list[int]:
@@ -168,6 +173,7 @@ def get_active_criteria(session: Session, scope: str) -> ImportanceCriteria | No
         .order_by(ImportanceCriterionRow.version.desc())
         .limit(1)
     ).scalar_one_or_none()
+
     if row is None:
         return None
     return convert_row_to_importance_criteria(row)
@@ -190,6 +196,7 @@ def insert_feedback(
         consumed=False,
         marked_at=marked_at,
     )
+
     session.add(row)
     session.flush()
     return int(row.id)
@@ -199,6 +206,7 @@ def get_unconsumed_feedback(session: Session, *, scope: str, chat_id: int | None
     query = select(FeedbackRow).where(FeedbackRow.scope == scope, ~FeedbackRow.consumed)
     if chat_id is not None:
         query = query.where(FeedbackRow.chat_id == chat_id)
+
     rows = session.execute(query.order_by(FeedbackRow.marked_at)).scalars().all()
     return [convert_row_to_feedback(row) for row in rows]
 
@@ -230,19 +238,20 @@ def get_criteria_by_version(session: Session, *, scope: str, version: int) -> Im
             ImportanceCriterionRow.scope == scope, ImportanceCriterionRow.version == version
         )
     ).scalar_one_or_none()
+
     if row is None:
         return None
     return convert_row_to_importance_criteria(row)
 
 
 def insert_criteria(session: Session, *, scope: str, criteria_text: str, now: datetime) -> int:
-    max_version = session.execute(
-        select(ImportanceCriterionRow.version)
-        .where(ImportanceCriterionRow.scope == scope)
-        .order_by(ImportanceCriterionRow.version.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    new_version = (int(max_version) if max_version is not None else 0) + 1
+    # Compute version inside the INSERT so concurrent recalc/rollback callers can
+    # never race to the same version. The scope's UNIQUE(scope, version) index
+    # also catches any remaining race.
+    next_version_query = select(func.coalesce(func.max(ImportanceCriterionRow.version), 0) + 1).where(
+        ImportanceCriterionRow.scope == scope
+    )
+    new_version = int(session.execute(next_version_query).scalar_one())
     session.add(
         ImportanceCriterionRow(
             scope=scope,

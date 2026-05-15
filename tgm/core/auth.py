@@ -92,7 +92,7 @@ class Finish:
 
 
 Action = (
-    LoadCredentials
+    LoadCredentials  # noqa: WPS221  # 13-variant action sum type; one identifier per line is the readable form
     | RequestApiCredentials
     | RequestPhone
     | CheckAuthorization
@@ -198,31 +198,25 @@ def create_initial_state() -> AuthorizationState:
     return AuthorizationState()
 
 
-def decide_next_action(state: AuthorizationState) -> Action:
+def decide_next_action(state: AuthorizationState) -> Action:  # noqa: PLR0915  # FSM dispatcher: phase-ordered guard chain reads as a state-transition table; decomposing further would scatter it.
     pending = _decide_credential_resolution(state)
     if pending is not None:
         return pending
-
     credentials = state.credentials
     if credentials is None:
         raise AuthorizationFlowError("credentials must be resolved before authorization phase")
-
     pending = _decide_authorization(state, credentials)
     if pending is not None:
         return pending
-
     if not state.authorized:
         pending = _decide_login_dance(state, credentials)
         if pending is not None:
             return pending
-
     pending = _decide_persistence(state, credentials)
     if pending is not None:
         return pending
-
     if not state.session_restricted:
         return RestrictSession()
-
     return Finish(credentials)
 
 
@@ -246,20 +240,17 @@ def _decide_login_dance(state: AuthorizationState, credentials: TelegramCredenti
     phone = credentials.phone
     if phone is None:
         raise AuthorizationFlowError("login dance requires credentials.phone to be set")
-
     if not state.code_request_sent:
         return RequestCode(phone)
     if state.sms_code is None:
         return RequestSmsCode()
     if not state.sign_in_attempted:
         return SignInWithCode(phone, state.sms_code)
-
     if state.password_required:
         if state.password is None:
             return RequestPassword()
         if not state.password_sign_in_attempted:
             return SignInWithPassword(state.password)
-
     return None
 
 
@@ -284,7 +275,7 @@ def apply_event(state: AuthorizationState, event: Event) -> AuthorizationState:
     return _apply_post_login_event(state, event)
 
 
-def _apply_pre_login_event(state: AuthorizationState, event: Event) -> AuthorizationState:
+def _apply_pre_login_event(state: AuthorizationState, event: Event) -> AuthorizationState:  # noqa: PLR0915  # FSM dispatcher: one match arm per pre-login event constructor.
     match event:
         case CredentialsLoaded(credentials):
             return replace(state, credentials_load_attempted=True, credentials=credentials)

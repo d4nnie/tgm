@@ -8,14 +8,14 @@ from sqlalchemy.orm import Session
 
 from tgm.core.errors import SingleInstanceError
 from tgm.core.feedback import build_feedback_samples, group_feedback_by_chat
-from tgm.core.parsing import parse_criteria_response
 from tgm.core.prompts import build_criteria_recalc_prompt
-from tgm.core.schemas import CRITERIA_RECALC_RESPONSE_SCHEMA
+from tgm.core.responses import parse_criteria_response
+from tgm.core.schemas import CRITERIA_RECALC_RESPONSE_SCHEMA, CriteriaRecalcResponse
 from tgm.core.scopes import parse_chat_scope
-from tgm.core.types import FeedbackSample
+from tgm.core.types import Feedback, FeedbackSample
 from tgm.shell.config import load_llm_provider_config
 from tgm.shell.db import DatabaseHandle
-from tgm.shell.llm import build_provider
+from tgm.shell.llm import LlmProvider, build_provider
 from tgm.shell.platform import acquire_exclusive_lock
 from tgm.shell.repos import (
     get_active_criteria,
@@ -31,7 +31,7 @@ _RECALC_MAX_INPUT_TOKENS = 16000
 
 
 @dataclass(frozen=True)
-class _RecalcInputs:
+class _InputsToRecalcBatch:
     old_version: int
     current_text: str
     samples: list[FeedbackSample]
@@ -117,66 +117,80 @@ async def _run_recalc(handle: DatabaseHandle, scope: str) -> None:
     provider = build_provider(config)
     try:
         inputs = _gather_recalc_inputs(handle, scope)
-        system, user = build_criteria_recalc_prompt(
-            about_me=inputs.about_me,
-            current_criteria_text=inputs.current_text,
-            feedback_samples=inputs.samples,
-        )
-        raw = await provider.call_json(
-            system=system,
-            user=user,
-            schema=CRITERIA_RECALC_RESPONSE_SCHEMA,
-            max_input_tokens=_RECALC_MAX_INPUT_TOKENS,
-        )
-        parsed = parse_criteria_response(raw)
-
-        with handle.session_factory() as session:
-            new_version = insert_criteria(
-                session,
-                scope=scope,
-                criteria_text=parsed.new_criteria_text,
-                now=datetime.now(UTC),
-            )
-            mark_feedback_consumed(session, inputs.consumed_feedback_ids)
-            session.commit()
-        click.echo(
-            json.dumps(
-                {
-                    "scope": scope,
-                    "old_version": inputs.old_version,
-                    "new_version": new_version,
-                    "what_changed": parsed.what_changed,
-                    "consumed_feedback_ids": inputs.consumed_feedback_ids,
-                },
-                ensure_ascii=False,
-            )
-        )
+        parsed = await _call_recalc_llm(provider, inputs)
+        new_version = _persist_recalc_result(handle, scope, inputs, parsed.new_criteria_text)
+        _emit_recalc_result(scope, inputs, new_version, parsed.what_changed)
     finally:
         await provider.aclose()
 
 
-def _gather_recalc_inputs(handle: DatabaseHandle, scope: str) -> _RecalcInputs:
+async def _call_recalc_llm(provider: LlmProvider, inputs: _InputsToRecalcBatch) -> CriteriaRecalcResponse:
+    system, user = build_criteria_recalc_prompt(
+        about_me=inputs.about_me,
+        current_criteria_text=inputs.current_text,
+        feedback_samples=inputs.samples,
+    )
+    raw = await provider.call_json(
+        system=system,
+        user=user,
+        schema=CRITERIA_RECALC_RESPONSE_SCHEMA,
+        max_input_tokens=_RECALC_MAX_INPUT_TOKENS,
+    )
+    return parse_criteria_response(raw)
+
+
+def _persist_recalc_result(
+    handle: DatabaseHandle, scope: str, inputs: _InputsToRecalcBatch, new_criteria_text: str
+) -> int:
+    with handle.session_factory() as session:
+        new_version = insert_criteria(session, scope=scope, criteria_text=new_criteria_text, now=datetime.now(UTC))
+        mark_feedback_consumed(session, inputs.consumed_feedback_ids)
+        session.commit()
+    return new_version
+
+
+def _emit_recalc_result(scope: str, inputs: _InputsToRecalcBatch, new_version: int, what_changed: str) -> None:
+    click.echo(
+        json.dumps(
+            {
+                "scope": scope,
+                "old_version": inputs.old_version,
+                "new_version": new_version,
+                "what_changed": what_changed,
+                "consumed_feedback_ids": inputs.consumed_feedback_ids,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def _gather_recalc_inputs(handle: DatabaseHandle, scope: str) -> _InputsToRecalcBatch:
     feedback_filter, chat_id_filter = _parse_recalc_scope(scope)
     with handle.session_factory() as session:
-        current = get_active_criteria(session, scope)
-        if current is None:
-            raise click.ClickException(f"no active criteria for scope {scope!r}")
-        unconsumed = get_unconsumed_feedback(session, scope=feedback_filter, chat_id=chat_id_filter)
-        if not unconsumed:
-            raise click.ClickException(f"no unconsumed feedback for scope {scope!r}")
-        samples = _build_samples_with_one_select_per_chat(session, unconsumed)
-        about_me = get_user_profile_about_me(session) or ""
-        consumed_ids = [feedback.id for feedback in unconsumed]
-    return _RecalcInputs(
+        return _read_recalc_inputs(session, scope, feedback_filter, chat_id_filter)
+
+
+def _read_recalc_inputs(
+    session: Session, scope: str, feedback_filter: str, chat_id_filter: int | None
+) -> _InputsToRecalcBatch:
+    current = get_active_criteria(session, scope)
+    if current is None:
+        raise click.ClickException(f"no active criteria for scope {scope!r}")
+    unconsumed = get_unconsumed_feedback(session, scope=feedback_filter, chat_id=chat_id_filter)
+    if not unconsumed:
+        raise click.ClickException(f"no unconsumed feedback for scope {scope!r}")
+    samples = _build_samples_with_one_select_per_chat(session, unconsumed)
+    about_me = get_user_profile_about_me(session) or ""
+    return _InputsToRecalcBatch(
         old_version=current.version,
         current_text=current.criteria_text,
         samples=samples,
         about_me=about_me,
-        consumed_feedback_ids=consumed_ids,
+        consumed_feedback_ids=[feedback.id for feedback in unconsumed],
     )
 
 
-def _build_samples_with_one_select_per_chat(session: Session, feedback_items: list) -> list[FeedbackSample]:
+def _build_samples_with_one_select_per_chat(session: Session, feedback_items: list[Feedback]) -> list[FeedbackSample]:
     grouped = group_feedback_by_chat(feedback_items)
     messages_by_pair = {}
     for chat_id, feedback_for_chat in grouped.items():

@@ -73,9 +73,13 @@ async def _run_login(callbacks: LoginCallbacks) -> None:
     client = await login(callbacks, status_callback)
     try:
         me = await do_with_telethon_guard(lambda: client.get_me(), status_callback)
-        if isinstance(me, User):
-            click.echo(f"Logged in as {me.first_name} (id={me.id})")
-        else:
-            click.echo("Logged in")
+        _echo_login_result(me)
     finally:
         await client.disconnect()
+
+
+def _echo_login_result(me: object) -> None:
+    if isinstance(me, User):
+        click.echo(f"Logged in as {me.first_name} (id={me.id})")
+        return
+    click.echo("Logged in")

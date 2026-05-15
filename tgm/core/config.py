@@ -1,6 +1,6 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, cast, get_args
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from tgm.core.types import LlmProvider, LlmProviderConfig, TelegramCredentials
 
@@ -18,37 +18,46 @@ DEFAULT_LLM_CONFIG_SECTION: dict[str, Any] = {
 def extract_telegram_credentials_from_env(env: Mapping[str, str]) -> TelegramCredentials | None:
     api_id = env.get("TGM_API_ID")
     api_hash = env.get("TGM_API_HASH")
-
-    if api_id and api_hash:
-        return TelegramCredentials(api_id=int(api_id), api_hash=api_hash, phone=None)
-    return None
+    if not (api_id and api_hash):
+        return None
+    parsed_api_id = _parse_api_id(api_id, source="TGM_API_ID")
+    return TelegramCredentials(api_id=parsed_api_id, api_hash=api_hash, phone=None)
 
 
 def extract_telegram_credentials_from_config(config: Mapping[str, Any]) -> TelegramCredentials | None:
     telegram_section = config.get("telegram") or {}
-    if "api_id" in telegram_section and "api_hash" in telegram_section:
-        return TelegramCredentials(
-            api_id=int(telegram_section["api_id"]),
-            api_hash=str(telegram_section["api_hash"]),
-            phone=telegram_section.get("phone"),
-        )
-    return None
+    if "api_id" not in telegram_section or "api_hash" not in telegram_section:
+        return None
+    return TelegramCredentials(
+        api_id=_parse_api_id(telegram_section["api_id"], source="telegram.api_id"),
+        api_hash=str(telegram_section["api_hash"]),
+        phone=telegram_section.get("phone"),
+    )
 
 
-def merge_telegram_credentials(config: Mapping[str, Any], credentials: TelegramCredentials) -> dict[str, Any]:
+def _parse_api_id(raw_value: object, *, source: str) -> int:
+    if isinstance(raw_value, int) and not isinstance(raw_value, bool):
+        return raw_value
+    if isinstance(raw_value, str):
+        try:
+            return int(raw_value)
+        except ValueError as error:
+            raise ValueError(f"{source} must be a positive integer; got {raw_value!r}") from error
+    raise ValueError(f"{source} must be a positive integer; got {raw_value!r}")
+
+
+def merge_telegram_credentials(config: Mapping[str, Any], credentials: TelegramCredentials) -> dict[str, Any]:  # noqa: WPS221  # parameterised-type signature
     new_config = dict(config)
     telegram_section = dict(new_config.get("telegram") or {})
     telegram_section["api_id"] = credentials.api_id
     telegram_section["api_hash"] = credentials.api_hash
-
-    if credentials.phone:
+    if credentials.phone is not None:
         telegram_section["phone"] = credentials.phone
-
     new_config["telegram"] = telegram_section
     return new_config
 
 
-def merge_telegram_phone(config: Mapping[str, Any], phone: str) -> dict[str, Any]:
+def merge_telegram_phone(config: Mapping[str, Any], phone: str) -> dict[str, Any]:  # noqa: WPS221  # parameterised-type signature
     new_config = dict(config)
     telegram_section = dict(new_config.get("telegram") or {})
     telegram_section["phone"] = phone
@@ -70,21 +79,32 @@ def extract_llm_provider_config_from_config(config: Mapping[str, Any]) -> LlmPro
     return provider_config
 
 
-def validate_base_url(base_url: str, allow_hosts: list[str]) -> None:
+def validate_base_url(base_url: str, allow_hosts: Sequence[str]) -> None:
+    parsed = _parse_base_url(base_url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"llm.base_url {base_url!r} has no hostname")
+    if hostname in _LOOPBACK_HOSTNAMES:
+        return
+    _require_https_remote(base_url, parsed.scheme)
+    _require_allowed_host(base_url, hostname, allow_hosts)
+
+
+def _parse_base_url(base_url: str) -> SplitResult:
     if not base_url:
         raise ValueError("llm.base_url must be a non-empty URL")
     parsed = urlsplit(base_url)
     if parsed.scheme not in {"http", "https"}:
         raise ValueError(f"llm.base_url {base_url!r} must use http or https scheme")
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError(f"llm.base_url {base_url!r} has no hostname")
+    return parsed
 
-    if hostname in _LOOPBACK_HOSTNAMES:
-        return
 
-    if parsed.scheme != "https":
+def _require_https_remote(base_url: str, scheme: str) -> None:
+    if scheme != "https":
         raise ValueError(f"llm.base_url {base_url!r} non-loopback host requires https")
+
+
+def _require_allowed_host(base_url: str, hostname: str, allow_hosts: Sequence[str]) -> None:
     if hostname not in allow_hosts:
         raise ValueError(f"llm.base_url {base_url!r} is not in the allow-list (loopback + llm.allow_hosts)")
 
@@ -121,7 +141,7 @@ def _extract_optional_string(section: Mapping[str, Any], field_name: str) -> str
     return value
 
 
-def _extract_optional_mapping(section: Mapping[str, Any], field_name: str) -> dict[str, Any] | None:
+def _extract_optional_mapping(section: Mapping[str, Any], field_name: str) -> dict[str, Any] | None:  # noqa: WPS221  # parameterised-type signature
     value = section.get(field_name)
     if value is None:
         return None
@@ -130,15 +150,13 @@ def _extract_optional_mapping(section: Mapping[str, Any], field_name: str) -> di
     return dict(value)
 
 
-def _extract_allow_hosts(section: Mapping[str, Any]) -> list[str]:
+def _extract_allow_hosts(section: Mapping[str, Any]) -> tuple[str, ...]:
     value = section.get("allow_hosts")
     if value is None:
-        return []
+        return ()
     if not isinstance(value, list):
         raise ValueError("llm.allow_hosts must be a list of hostnames")
-    hosts: list[str] = []
     for entry in value:
         if not isinstance(entry, str) or not entry:
             raise ValueError("llm.allow_hosts entries must be non-empty strings")
-        hosts.append(entry)
-    return hosts
+    return tuple(value)

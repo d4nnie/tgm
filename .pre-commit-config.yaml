@@ -22,3 +22,11 @@ repos:
         types: [python]
         pass_filenames: false
         require_serial: true
+
+      - id: flake8-wps
+        name: flake8 (wemake-python-styleguide, WPS221/WPS231 only)
+        entry: uv run flake8 tgm
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true

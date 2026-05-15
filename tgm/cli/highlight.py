@@ -2,14 +2,11 @@ import json
 from datetime import UTC, datetime
 
 import click
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from tgm.cli.stubs import stub_not_implemented
 from tgm.core.scopes import parse_chat_scope
 from tgm.shell.db import DatabaseHandle
-from tgm.shell.orm import ChatRow
-from tgm.shell.repos import insert_feedback
+from tgm.shell.repos import insert_feedback, is_chat_known
 
 
 @click.group(name="highlight")
@@ -47,7 +44,7 @@ def highlight_mark_important(
     scope_kind, resolved_chat_id = _resolve_scope(scope, chat_id)
     user_comment = comment if comment else None
     with handle.session_factory() as session:
-        if not _chat_exists(session, resolved_chat_id):
+        if not is_chat_known(session, resolved_chat_id):
             raise click.ClickException(
                 f"Chat {resolved_chat_id} not under monitoring; add it first with 'tgm chat add'"
             )
@@ -73,10 +70,6 @@ def highlight_mark_important(
             ensure_ascii=False,
         )
     )
-
-
-def _chat_exists(session: Session, chat_id: int) -> bool:
-    return session.execute(select(ChatRow.chat_id).where(ChatRow.chat_id == chat_id)).scalar_one_or_none() is not None
 
 
 def _resolve_scope(scope: str, chat_id_option: int | None) -> tuple[str, int]:

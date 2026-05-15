@@ -45,10 +45,10 @@ from tgm.core.parsing import (
     build_chat_dialog_from_telethon,
     build_edit_payload_from_telethon,
     build_message_from_telethon,
-    get_chat_scope,
     serialize_telethon_message,
 )
-from tgm.core.types import ChatDialog, StatusCallback, TelegramCredentials
+from tgm.core.scopes import get_chat_scope
+from tgm.core.types import ChatDialog, RunState, StatusCallback, TelegramCredentials
 from tgm.shell.config import (
     load_telegram_credentials,
     save_telegram_credentials,
@@ -60,6 +60,7 @@ from tgm.shell.repos import (
     insert_message,
     list_monitored_chat_ids,
     update_message_edit,
+    upsert_run_state,
 )
 from tgm.shell.retry import do_with_telethon_guard
 
@@ -95,18 +96,19 @@ async def login(callbacks: LoginCallbacks, status_callback: StatusCallback) -> T
     logger.info("Starting Telegram login flow")
     state = create_initial_state()
     client: TelegramClient | None = None
-
     while True:
         action = decide_next_action(state)
-
         if isinstance(action, Finish):
-            if client is None:
-                raise AuthorizationFlowError("login completed without a connected Telethon client")
-            logger.info("Telegram login completed")
-            return client
-
+            return _complete_login(client)
         client, event = await _execute_action(action, callbacks, status_callback, client)
         state = apply_event(state, event)
+
+
+def _complete_login(client: TelegramClient | None) -> TelegramClient:
+    if client is None:
+        raise AuthorizationFlowError("login completed without a connected Telethon client")
+    logger.info("Telegram login completed")
+    return client
 
 
 async def _execute_action(
@@ -151,7 +153,9 @@ async def _execute_telethon_action(
 async def _open_client_and_check_authorization(
     credentials: TelegramCredentials, status_callback: StatusCallback
 ) -> tuple[TelegramClient, Event]:
-    client = TelegramClient(_evaluate_telethon_session_argument(), credentials.api_id, credentials.api_hash)
+    # Telethon takes the path without the `.session` suffix and appends it back.
+    session_argument = str(resolve_session_path().with_suffix(""))
+    client = TelegramClient(session_argument, credentials.api_id, credentials.api_hash)
     await do_with_telethon_guard(lambda: client.connect(), status_callback)
     authorized = await do_with_telethon_guard(lambda: client.is_user_authorized(), status_callback)
     return client, AuthorizationChecked(authorized=authorized)
@@ -188,7 +192,7 @@ def _execute_local_action(action: Action) -> Event:
         case LoadCredentials():
             return CredentialsLoaded(load_telegram_credentials())
         case RestrictSession():
-            restrict_path_access(_evaluate_session_file())
+            restrict_path_access(resolve_session_path())
             return SessionRestricted()
         case PersistFullCredentials(credentials):
             save_telegram_credentials(credentials)
@@ -216,28 +220,29 @@ def subscribe_to_message_events(
     logger.info("Subscribed to Telegram message events")
 
 
+def _filter_monitored_chat_id(raw_chat_id: int | None, monitored: set[int]) -> int | None:
+    if raw_chat_id is None:
+        return None
+    chat_id = int(raw_chat_id)
+    if chat_id not in monitored:
+        return None
+    return chat_id
+
+
 async def _handle_new_message(
     session: Session,
     event: events.NewMessage.Event,
     status_callback: StatusCallback,
     monitored_chat_ids: set[int],
 ) -> None:
-    chat_id = event.chat_id
-    if chat_id is None or int(chat_id) not in monitored_chat_ids:
+    chat_id = _filter_monitored_chat_id(event.chat_id, monitored_chat_ids)
+    if chat_id is None:
         return
-
-    try:
-        sender = await do_with_telethon_guard(lambda: event.get_sender(), status_callback)
-    except SessionExpiredError:
-        logger.error("Telegram session expired in message handler", extra={"chat_id": int(chat_id)})
-        status_callback(_SESSION_EXPIRED_HANDLER_MESSAGE)
+    sender = await _resolve_event_sender(event, chat_id, status_callback)
+    if sender is _SENDER_UNAVAILABLE:
         return
-    except NetworkError:
-        status_callback("Сеть Telegram недоступна, продолжаем мониторинг")
-        return
-
     message = build_message_from_telethon(
-        chat_id=int(chat_id),
+        chat_id=chat_id,
         telethon_message=event.message,
         sender=sender,
         raw_json=serialize_telethon_message(event.message),
@@ -247,18 +252,34 @@ async def _handle_new_message(
     session.commit()
 
 
+_SENDER_UNAVAILABLE = object()
+
+
+async def _resolve_event_sender(
+    event: events.NewMessage.Event, chat_id: int, status_callback: StatusCallback
+) -> object:
+    try:
+        return await do_with_telethon_guard(lambda: event.get_sender(), status_callback)
+    except SessionExpiredError:
+        logger.error("Telegram session expired in message handler", extra={"chat_id": chat_id})
+        status_callback(_SESSION_EXPIRED_HANDLER_MESSAGE)
+        return _SENDER_UNAVAILABLE
+    except NetworkError:
+        status_callback("Сеть Telegram недоступна, продолжаем мониторинг")
+        return _SENDER_UNAVAILABLE
+
+
 async def _handle_message_edited(
     session: Session,
     event: events.MessageEdited.Event,
     status_callback: StatusCallback,
     monitored_chat_ids: set[int],
 ) -> None:
-    chat_id = event.chat_id
-    if chat_id is None or int(chat_id) not in monitored_chat_ids:
+    chat_id = _filter_monitored_chat_id(event.chat_id, monitored_chat_ids)
+    if chat_id is None:
         return
-
     payload = build_edit_payload_from_telethon(
-        chat_id=int(chat_id),
+        chat_id=chat_id,
         telethon_message=event.message,
         raw_json=serialize_telethon_message(event.message),
         fallback_edited_at=datetime.now(UTC),
@@ -294,13 +315,19 @@ async def backfill_messages(client: TelegramClient, session: Session, status_cal
     chat_ids = list_monitored_chat_ids(session)
     logger.info("Starting backfill for monitored chats", extra={"chats": len(chat_ids)})
     for chat_id in chat_ids:
-        try:
-            await _backfill_chat(client, session, chat_id, status_callback)
-        except SessionExpiredError:
-            raise
-        except Exception:
-            logger.error("Backfill failed for chat", extra={"chat_id": chat_id}, exc_info=True)
-            continue
+        await _safely_backfill_one(client, session, chat_id, status_callback)
+
+
+async def _safely_backfill_one(
+    client: TelegramClient, session: Session, chat_id: int, status_callback: StatusCallback
+) -> None:
+    try:
+        await _backfill_chat(client, session, chat_id, status_callback)
+    except SessionExpiredError:
+        raise
+    except Exception:
+        session.rollback()
+        logger.error("Backfill failed for chat", extra={"chat_id": chat_id}, exc_info=True)
 
 
 async def _backfill_chat(
@@ -309,10 +336,41 @@ async def _backfill_chat(
     state = get_run_state(session, get_chat_scope(chat_id))
     if state is None or state.last_message_id is None:
         return
+    inserted_count, latest_message_id = await _insert_new_messages_for_chat(
+        client, session, chat_id, state.last_message_id, status_callback
+    )
+    _advance_run_state(session, chat_id, latest_message_id)
+    session.commit()
+    _log_backfill_completion(chat_id, inserted_count, state.last_message_id)
 
+
+def _log_backfill_completion(chat_id: int, inserted_count: int, since_message_id: int) -> None:
+    logger.info(
+        "Backfilled chat",
+        extra={"chat_id": chat_id, "inserted": inserted_count, "since_message_id": since_message_id},
+    )
+
+
+def _advance_run_state(session: Session, chat_id: int, latest_message_id: int | None) -> None:
+    if latest_message_id is None:
+        return
+    upsert_run_state(
+        session,
+        RunState(scope=get_chat_scope(chat_id), last_run_at=datetime.now(UTC), last_message_id=latest_message_id),  # noqa: WPS221  # kwarg constructor reads positionally
+    )
+
+
+async def _insert_new_messages_for_chat(
+    client: TelegramClient,
+    session: Session,
+    chat_id: int,
+    since_message_id: int,
+    status_callback: StatusCallback,
+) -> tuple[int, int | None]:
     sender_cache: dict[int, object] = {}
     inserted_count = 0
-    async for telethon_message in client.iter_messages(chat_id, min_id=state.last_message_id):
+    latest_message_id: int | None = None
+    async for telethon_message in client.iter_messages(chat_id, min_id=since_message_id):
         sender = await _resolve_sender(client, telethon_message, sender_cache, status_callback)
         message = build_message_from_telethon(
             chat_id=chat_id,
@@ -323,12 +381,8 @@ async def _backfill_chat(
         )
         insert_message(session, message)
         inserted_count += 1
-
-    session.commit()
-    logger.info(
-        "Backfilled chat",
-        extra={"chat_id": chat_id, "inserted": inserted_count, "since_message_id": state.last_message_id},
-    )
+        latest_message_id = max(latest_message_id or 0, message.message_id)
+    return inserted_count, latest_message_id
 
 
 async def _resolve_sender(
@@ -352,13 +406,5 @@ async def _resolve_sender(
     return cached
 
 
-def _evaluate_telethon_session_argument() -> str:
-    return str(get_user_data_dir() / _SESSION_BASENAME)
-
-
-def _evaluate_session_file() -> Path:
-    return get_user_data_dir() / f"{_SESSION_BASENAME}.session"
-
-
 def resolve_session_path() -> Path:
-    return _evaluate_session_file()
+    return get_user_data_dir() / f"{_SESSION_BASENAME}.session"

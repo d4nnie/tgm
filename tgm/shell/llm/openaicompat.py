@@ -2,7 +2,8 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, NoReturn
 
 import httpx
 
@@ -19,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 _CHAT_COMPLETIONS_PATH = "/chat/completions"
+
+
+@dataclass(frozen=True)
+class _HttpAttemptResult:
+    parsed: dict[str, Any] | None
+    status: int | None
+    retry_after: int | None
+    error: Exception | None
 
 
 class OpenAiCompatibleProvider:
@@ -54,13 +63,10 @@ class OpenAiCompatibleProvider:
             model=self._model,
             options=self._options,
         )
-        url = f"{self._base_url}{_CHAT_COMPLETIONS_PATH}"
-        headers = self._build_headers()
-
         async with self._lock:
             return await self._post_with_retries(
-                url=url,
-                headers=headers,
+                url=f"{self._base_url}{_CHAT_COMPLETIONS_PATH}",
+                headers=self._build_headers(),
                 request_body=request_body,
                 prompt_chars=prompt_chars,
                 prompt_tokens_estimated=prompt_tokens_estimated,
@@ -86,61 +92,150 @@ class OpenAiCompatibleProvider:
         attempt = 0
         last_log_signature: tuple[str, int] | None = None
         while True:
-            started_at = time.monotonic()
-            status: int | None = None
-            retry_after: int | None = None
-            error_for_raise: Exception | None = None
-            try:
-                response = await self._client.post(url, json=request_body, headers=headers)
-                response.raise_for_status()
-                parsed = parse_chat_completions_response(response.json())
-            except httpx.TimeoutException as error:
-                error_for_raise = error
-            except httpx.HTTPStatusError as error:
-                error_for_raise = error
-                status = error.response.status_code
-                retry_after = _parse_retry_after(error.response.headers.get("Retry-After"))
-            except httpx.HTTPError as error:
-                error_for_raise = error
-            else:
-                if attempt > 0:
-                    logger.info("LLM recovered", extra={"attempt": attempt, "model": self._model})
-                logger.info(
-                    "Called LLM",
-                    extra={
-                        "model": self._model,
-                        "prompt_chars": prompt_chars,
-                        "prompt_tokens_est": prompt_tokens_estimated,
-                        "latency_ms": _ms_since(started_at),
-                        "success": True,
-                    },
-                )
+            parsed, attempt, last_log_signature = await self._run_one_attempt(
+                url,
+                headers,
+                request_body,
+                prompt_chars,
+                prompt_tokens_estimated,
+                attempt,
+                last_log_signature,
+            )
+            if parsed is not None:
                 return parsed
 
-            outcome = classify_http_outcome(status=status, attempt=attempt, retry_after=retry_after)
-            if outcome is None:
-                logger.error(
-                    "LLM call failed",
-                    extra={
-                        "model": self._model,
-                        "prompt_chars": prompt_chars,
-                        "prompt_tokens_est": prompt_tokens_estimated,
-                        "latency_ms": _ms_since(started_at),
-                        "success": False,
-                        "http_status": status if status is not None else 0,
-                    },
-                )
-                raise LLMUnavailableError(_describe_failure(status, error_for_raise)) from error_for_raise
-
-            last_log_signature = _log_retry_state(
-                attempt=outcome.attempt,
-                wait_seconds=outcome.wait_seconds,
-                status=status,
-                last_signature=last_log_signature,
-                model=self._model,
+    async def _run_one_attempt(
+        self,
+        url: str,
+        headers: dict[str, str],
+        request_body: dict[str, Any],
+        prompt_chars: int,
+        prompt_tokens_estimated: int,
+        attempt: int,
+        last_log_signature: tuple[str, int] | None,
+    ) -> tuple[dict[str, Any] | None, int, tuple[str, int] | None]:  # noqa: WPS221  # parameterised-type return signature
+        started_at = time.monotonic()
+        result = await self._attempt_post(url, headers, request_body)
+        if result.parsed is not None:
+            self._log_success(
+                attempt,
+                prompt_chars,
+                prompt_tokens_estimated,
+                started_at,
             )
-            await asyncio.sleep(outcome.wait_seconds)
-            attempt += 1
+            return result.parsed, attempt, last_log_signature
+        outcome = classify_http_outcome(
+            status=result.status,
+            attempt=attempt,
+            retry_after=result.retry_after,
+        )
+        if outcome is None:
+            self._raise_unavailable(
+                prompt_chars,
+                prompt_tokens_estimated,
+                started_at,
+                result,
+            )
+        signature = await self._sleep_before_retry(
+            outcome,
+            result.status,
+            last_log_signature,
+        )
+        return None, outcome.attempt + 1, signature
+
+    def _raise_unavailable(
+        self,
+        prompt_chars: int,
+        prompt_tokens_estimated: int,
+        started_at: float,
+        result: _HttpAttemptResult,
+    ) -> NoReturn:
+        self._log_failure(prompt_chars, prompt_tokens_estimated, started_at, result.status)
+        raise LLMUnavailableError(_describe_failure(result.status, result.error)) from result.error
+
+    async def _sleep_before_retry(
+        self,
+        outcome: object,
+        status: int | None,
+        last_log_signature: tuple[str, int] | None,  # noqa: WPS221  # parameterised-type signature
+    ) -> tuple[str, int]:
+        signature = _log_retry_state(
+            attempt=outcome.attempt,  # ty: ignore[unresolved-attribute]
+            wait_seconds=outcome.wait_seconds,  # ty: ignore[unresolved-attribute]
+            status=status,
+            last_signature=last_log_signature,
+            model=self._model,
+        )
+        await asyncio.sleep(outcome.wait_seconds)  # ty: ignore[unresolved-attribute]
+        return signature
+
+    async def _attempt_post(
+        self,
+        url: str,
+        headers: dict[str, str],
+        request_body: dict[str, Any],  # noqa: WPS221  # parameterised-type signature
+    ) -> _HttpAttemptResult:
+        try:
+            response = await self._client.post(url, json=request_body, headers=headers)
+            response.raise_for_status()
+            parsed = parse_chat_completions_response(response.json())
+        except httpx.TimeoutException as error:
+            return _HttpAttemptResult(
+                parsed=None,
+                status=None,
+                retry_after=None,
+                error=error,
+            )
+        except httpx.HTTPStatusError as error:
+            retry_after = _parse_retry_after(error.response.headers.get("Retry-After"))
+            return _HttpAttemptResult(
+                parsed=None,
+                status=error.response.status_code,
+                retry_after=retry_after,
+                error=error,
+            )
+        except httpx.HTTPError as error:
+            return _HttpAttemptResult(
+                parsed=None,
+                status=None,
+                retry_after=None,
+                error=error,
+            )
+        return _HttpAttemptResult(
+            parsed=parsed,
+            status=None,
+            retry_after=None,
+            error=None,
+        )
+
+    def _log_success(self, attempt: int, prompt_chars: int, prompt_tokens_estimated: int, started_at: float) -> None:
+        if attempt > 0:
+            logger.info("LLM recovered", extra={"attempt": attempt, "model": self._model})
+        logger.info(
+            "Called LLM",
+            extra={
+                "model": self._model,
+                "prompt_chars": prompt_chars,
+                "prompt_tokens_est": prompt_tokens_estimated,
+                "latency_ms": _ms_since(started_at),
+                "success": True,
+            },
+        )
+
+    def _log_failure(
+        self, prompt_chars: int, prompt_tokens_estimated: int, started_at: float, status: int | None
+    ) -> None:
+        logger.error(
+            "LLM call failed",
+            extra={
+                "model": self._model,
+                "prompt_chars": prompt_chars,
+                "prompt_tokens_est": prompt_tokens_estimated,
+                "latency_ms": _ms_since(started_at),
+                "success": False,
+                "http_status": status if status is not None else 0,
+            },
+        )
 
 
 def _log_retry_state(

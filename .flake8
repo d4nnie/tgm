@@ -1,0 +1,27 @@
+[flake8]
+# Selective adoption of wemake-python-styleguide for the rules Ruff cannot
+# express. Ruff handles E/W/F, naming, complexity (C901), function length
+# (PLR0915), bool-expr depth (PLR0916), nesting (PLR1702); flake8 is only
+# here for the two WPS rules that target single-expression and per-function
+# readability that Ruff has no equivalent for.
+#
+# WPS221 — Jones Complexity per line (stacked function calls + bool ops).
+# WPS231 — Cognitive complexity per function (weights nesting more than McCabe).
+select = WPS221, WPS231
+# WPS221 fires when an expression's AST-node count exceeds this. 14 is the
+# WPS default; 8 catches `json.loads(str(x or "[]"))`-style stacked one-liners
+# while still allowing f-strings and short comprehensions.
+max-line-complexity = 12
+# WPS231 (cognitive complexity, weights nesting more heavily than McCabe).
+max-cognitive-score = 12
+# Skip tests (E2E flows legitimately stack operations), packaging artefacts,
+# and docs.
+exclude = .venv, tests, build, dist, docs, .git
+# SQLAlchemy 2.x query chains in repos.py and Click `echo(json.dumps(...))` /
+# kwarg-heavy command bodies in tgm/cli/ both trip Jones complexity by their
+# nature; decomposing them into temporaries hurts readability rather than
+# helps it. WPS221 stays off for those layers; core and the rest of shell
+# still enforce it.
+per-file-ignores =
+    tgm/shell/repos.py:WPS221
+    tgm/cli/*.py:WPS221
