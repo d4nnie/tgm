@@ -1,9 +1,11 @@
 from collections.abc import Mapping
 from typing import Any, cast, get_args
+from urllib.parse import urlsplit
 
 from tgm.core.types import LlmProvider, LlmProviderConfig, TelegramCredentials
 
 _VALID_LLM_PROVIDERS: frozenset[str] = frozenset(get_args(LlmProvider))
+_LOOPBACK_HOSTNAMES: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
 
 DEFAULT_LLM_CONFIG_SECTION: dict[str, Any] = {
     "provider": "openai-compat",
@@ -56,13 +58,35 @@ def merge_telegram_phone(config: Mapping[str, Any], phone: str) -> dict[str, Any
 
 def extract_llm_provider_config_from_config(config: Mapping[str, Any]) -> LlmProviderConfig:
     section = _require_llm_section(config)
-    return LlmProviderConfig(
+    provider_config = LlmProviderConfig(
         provider=_extract_llm_provider(section),
         base_url=_extract_required_string(section, "base_url"),
         model=_extract_required_string(section, "model"),
         api_key_env=_extract_optional_string(section, "api_key_env"),
         options=_extract_optional_mapping(section, "options"),
+        allow_hosts=_extract_allow_hosts(section),
     )
+    validate_base_url(provider_config.base_url, provider_config.allow_hosts)
+    return provider_config
+
+
+def validate_base_url(base_url: str, allow_hosts: list[str]) -> None:
+    if not base_url:
+        raise ValueError("llm.base_url must be a non-empty URL")
+    parsed = urlsplit(base_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(f"llm.base_url {base_url!r} must use http or https scheme")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"llm.base_url {base_url!r} has no hostname")
+
+    if hostname in _LOOPBACK_HOSTNAMES:
+        return
+
+    if parsed.scheme != "https":
+        raise ValueError(f"llm.base_url {base_url!r} non-loopback host requires https")
+    if hostname not in allow_hosts:
+        raise ValueError(f"llm.base_url {base_url!r} is not in the allow-list (loopback + llm.allow_hosts)")
 
 
 def _require_llm_section(config: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -102,3 +126,17 @@ def _extract_optional_mapping(section: Mapping[str, Any], field_name: str) -> di
     if not isinstance(value, Mapping):
         raise ValueError(f"llm.{field_name} must be a table")
     return dict(value)
+
+
+def _extract_allow_hosts(section: Mapping[str, Any]) -> list[str]:
+    value = section.get("allow_hosts")
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("llm.allow_hosts must be a list of hostnames")
+    hosts: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or not entry:
+            raise ValueError("llm.allow_hosts entries must be non-empty strings")
+        hosts.append(entry)
+    return hosts

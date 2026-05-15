@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
+from tgm.core.migrations import compose_atomic_migration
 from tgm.shell.platform import get_user_data_dir
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,6 @@ CREATE TABLE IF NOT EXISTS schema_version (
 """
 
 _SELECT_CURRENT_SCHEMA_VERSION = "SELECT COALESCE(MAX(version), 0) FROM schema_version"
-_INSERT_SCHEMA_VERSION = "INSERT INTO schema_version(version) VALUES (?)"
 
 
 @dataclass(frozen=True)
@@ -67,8 +67,8 @@ def apply_migrations(engine: Engine) -> None:
         for version, sql_text in migrations:
             if version <= current_version:
                 continue
-            cursor.executescript(sql_text)
-            cursor.execute(_INSERT_SCHEMA_VERSION, (version,))
+            atomic_sql = compose_atomic_migration(sql_text, version)
+            cursor.executescript(atomic_sql)
             logger.info("Applied migration", extra={"version": version})
             applied_count += 1
 

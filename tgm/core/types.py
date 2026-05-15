@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
@@ -85,6 +85,7 @@ class LlmProviderConfig:
     model: str
     api_key_env: str | None = None
     options: dict[str, Any] | None = None
+    allow_hosts: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

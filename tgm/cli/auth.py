@@ -10,6 +10,7 @@ from tgm.cli.prompts import make_click_login_callbacks, make_click_status_callba
 from tgm.cli.stubs import stub_not_implemented
 from tgm.core.errors import SessionExpiredError
 from tgm.shell.client import login
+from tgm.shell.platform import require_single_instance
 from tgm.shell.retry import do_with_telethon_guard
 
 
@@ -19,12 +20,14 @@ def auth_group() -> None:
 
 
 @auth_group.command(name="login")
+@require_single_instance
 def auth_login() -> None:
     """Interactive login: api_id / api_hash / phone / SMS code / 2FA."""
     run_with_session_guard(_run_login())
 
 
 @auth_group.command(name="status")
+@require_single_instance
 def auth_status() -> None:
     """Print JSON: connection, provider, worker state."""
     stub_not_implemented("EPIC-05 (LLM provider) + EPIC-07 (worker)")

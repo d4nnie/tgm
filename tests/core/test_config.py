@@ -7,6 +7,7 @@ from tgm.core.config import (
     extract_telegram_credentials_from_env,
     merge_telegram_credentials,
     merge_telegram_phone,
+    validate_base_url,
 )
 from tgm.core.types import LlmProviderConfig, TelegramCredentials
 
@@ -308,4 +309,71 @@ def test_default_llm_config_section_parses_back_to_local_ollama_preset():
         model="gpt-oss:20b",
         api_key_env=None,
         options={"num_ctx": 24576},
+        allow_hosts=[],
     )
+
+
+def test_validate_base_url_accepts_loopback_http():
+    validate_base_url("http://127.0.0.1:11434/v1", [])
+
+
+def test_validate_base_url_accepts_localhost():
+    validate_base_url("http://localhost:11434/v1", [])
+
+
+def test_validate_base_url_accepts_ipv6_loopback():
+    validate_base_url("http://[::1]:11434/v1", [])
+
+
+def test_validate_base_url_accepts_https_host_in_allow_list():
+    validate_base_url("https://api.openai.com/v1", ["api.openai.com"])
+
+
+def test_validate_base_url_rejects_non_loopback_without_allow_list():
+    with pytest.raises(ValueError, match="allow-list"):
+        validate_base_url("https://api.openai.com/v1", [])
+
+
+def test_validate_base_url_rejects_http_non_loopback():
+    with pytest.raises(ValueError, match="https"):
+        validate_base_url("http://api.openai.com/v1", ["api.openai.com"])
+
+
+def test_validate_base_url_rejects_host_not_in_allow_list():
+    with pytest.raises(ValueError, match="allow-list"):
+        validate_base_url("https://attacker.example/v1", ["api.openai.com"])
+
+
+def test_validate_base_url_rejects_empty_url():
+    with pytest.raises(ValueError, match="non-empty"):
+        validate_base_url("", [])
+
+
+def test_validate_base_url_rejects_non_http_scheme():
+    with pytest.raises(ValueError, match="scheme"):
+        validate_base_url("ftp://127.0.0.1/x", [])
+
+
+def test_extract_llm_provider_config_validates_base_url_against_allow_hosts():
+    config = {"llm": _full_llm_section(base_url="https://attacker.example/v1")}
+
+    with pytest.raises(ValueError, match="allow-list"):
+        extract_llm_provider_config_from_config(config)
+
+
+def test_extract_llm_provider_config_accepts_https_host_with_allow_hosts():
+    section = _full_llm_section(base_url="https://api.openai.com/v1")
+    section["allow_hosts"] = ["api.openai.com"]
+
+    result = extract_llm_provider_config_from_config({"llm": section})
+
+    assert result.base_url == "https://api.openai.com/v1"
+    assert result.allow_hosts == ["api.openai.com"]
+
+
+def test_extract_llm_provider_config_rejects_non_list_allow_hosts():
+    section = _full_llm_section()
+    section["allow_hosts"] = "api.openai.com"
+
+    with pytest.raises(ValueError, match="allow_hosts"):
+        extract_llm_provider_config_from_config({"llm": section})

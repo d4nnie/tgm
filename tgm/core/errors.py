@@ -24,6 +24,10 @@ class NetworkError(RuntimeError):
     pass
 
 
+class SingleInstanceError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class FloodWaitOutcome:
     wait_seconds: int

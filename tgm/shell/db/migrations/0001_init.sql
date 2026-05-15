@@ -1,9 +1,9 @@
-CREATE TABLE user_profile (
+CREATE TABLE IF NOT EXISTS user_profile (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
 
-CREATE TABLE chats (
+CREATE TABLE IF NOT EXISTS chats (
     chat_id          INTEGER PRIMARY KEY,
     title            TEXT NOT NULL,
     type             TEXT NOT NULL,
@@ -12,14 +12,14 @@ CREATE TABLE chats (
     added_at         TIMESTAMP NOT NULL
 );
 
-CREATE TABLE chat_profiles (
+CREATE TABLE IF NOT EXISTS chat_profiles (
     chat_id            INTEGER PRIMARY KEY REFERENCES chats(chat_id),
     description_prompt TEXT NOT NULL DEFAULT '',
     rolling_summary    TEXT NOT NULL DEFAULT '',
     updated_at         TIMESTAMP NOT NULL
 );
 
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
     chat_id         INTEGER NOT NULL,
     msg_id          INTEGER NOT NULL,
     ts              TIMESTAMP NOT NULL,
@@ -31,9 +31,9 @@ CREATE TABLE messages (
     raw_json        TEXT,
     PRIMARY KEY (chat_id, msg_id)
 );
-CREATE INDEX idx_messages_chat_ts ON messages(chat_id, ts);
+CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, ts);
 
-CREATE TABLE digests (
+CREATE TABLE IF NOT EXISTS digests (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     scope           TEXT NOT NULL,
     chat_id         INTEGER,
@@ -42,9 +42,9 @@ CREATE TABLE digests (
     highlights_json TEXT NOT NULL,
     seen            INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_digests_scope_chat_ts ON digests(scope, chat_id, run_ts);
+CREATE INDEX IF NOT EXISTS idx_digests_scope_chat_ts ON digests(scope, chat_id, run_ts);
 
-CREATE TABLE importance_criteria (
+CREATE TABLE IF NOT EXISTS importance_criteria (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     scope         TEXT NOT NULL,
     criteria_text TEXT NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE importance_criteria (
     UNIQUE (scope, version)
 );
 
-CREATE TABLE feedback (
+CREATE TABLE IF NOT EXISTS feedback (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id      INTEGER NOT NULL,
     msg_ids_json TEXT NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE feedback (
     marked_at    TIMESTAMP NOT NULL
 );
 
-CREATE TABLE run_state (
+CREATE TABLE IF NOT EXISTS run_state (
     scope       TEXT PRIMARY KEY,
     last_run_at TIMESTAMP,
     last_msg_id INTEGER

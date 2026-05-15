@@ -13,6 +13,7 @@ from tgm.core.types import Chat
 from tgm.shell.client import fetch_dialogs, login
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.orm import ChatRow
+from tgm.shell.platform import require_single_instance
 from tgm.shell.repos import (
     get_chat_profile,
     is_chat_monitored,
@@ -31,6 +32,7 @@ def chat_group() -> None:
 
 @chat_group.command(name="list")
 @click.pass_obj
+@require_single_instance
 def chat_list(handle: DatabaseHandle) -> None:
     """Print all dialogs in the account as JSON."""
     run_with_session_guard(_run_chat_list(handle))
@@ -40,6 +42,7 @@ def chat_list(handle: DatabaseHandle) -> None:
 @click.argument("chat_id", type=int)
 @click.option("--period", type=int, default=30, help="Per-chat tick period in minutes.")
 @click.pass_obj
+@require_single_instance
 def chat_add(handle: DatabaseHandle, chat_id: int, period: int) -> None:
     """Add a chat to the whitelist (no backfill)."""
     run_with_session_guard(_run_chat_add(handle, chat_id, period))
