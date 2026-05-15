@@ -66,7 +66,7 @@ def criteria_show(handle: DatabaseHandle, scope: str) -> None:
                 "inherited": inherited,
                 "version": criteria.version,
                 "criteria_text": criteria.criteria_text,
-                "updated_at": _format_datetime(criteria.updated_at),
+                "updated_at": criteria.updated_at.isoformat(),
             },
             ensure_ascii=False,
         )
@@ -191,9 +191,3 @@ def _parse_recalc_scope(scope: str) -> tuple[str, int | None]:
         return parse_chat_scope(scope)
     except ValueError as error:
         raise click.BadParameter(str(error)) from error
-
-
-def _format_datetime(value: datetime) -> str:
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    return str(value)

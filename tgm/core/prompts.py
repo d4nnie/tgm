@@ -1,3 +1,5 @@
+import json
+
 from tgm.core.types import FeedbackSample, Message, PerChatDigestPart
 
 _PER_CHAT_SYSTEM_PROMPT = "Ты — ассистент, который делает краткие сводки чатов.\nВозвращай только валидный JSON."
@@ -104,9 +106,11 @@ def _render_digest_parts(parts: list[PerChatDigestPart]) -> str:
 
 def _render_digest_part(part: PerChatDigestPart) -> str:
     highlights = ", ".join(
-        f'{{message_id={highlight.message_id}, why="{highlight.why}"}}' for highlight in part.highlights
+        f"{{message_id={highlight.message_id}, why={json.dumps(highlight.why, ensure_ascii=False)}}}"
+        for highlight in part.highlights
     )
-    return f'[chat_id={part.chat_id}, title="{part.title}"]\nsummary: {part.summary}\nhighlights: [{highlights}]'
+    title = json.dumps(part.title, ensure_ascii=False)
+    return f"[chat_id={part.chat_id}, title={title}]\nsummary: {part.summary}\nhighlights: [{highlights}]"
 
 
 def _render_feedback_samples(samples: list[FeedbackSample]) -> str:
@@ -114,7 +118,7 @@ def _render_feedback_samples(samples: list[FeedbackSample]) -> str:
         return ""
     blocks = []
     for index, sample in enumerate(samples, start=1):
-        comment = sample.user_comment if sample.user_comment is not None else ""
+        comment = json.dumps(sample.user_comment or "", ensure_ascii=False)
         rendered_messages = "\n    ".join(_render_message(message) for message in sample.messages)
-        blocks.append(f'[sample {index}]\n  comment: "{comment}"\n  messages:\n    {rendered_messages}')
+        blocks.append(f"[sample {index}]\n  comment: {comment}\n  messages:\n    {rendered_messages}")
     return "\n".join(blocks)

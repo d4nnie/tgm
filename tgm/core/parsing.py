@@ -93,6 +93,7 @@ def build_message_from_telethon(
     text = getattr(telethon_message, "text", None) or None
     reply_to = getattr(telethon_message, "reply_to_msg_id", None)
     sender_id = int(getattr(sender, "id", 0)) if sender is not None else None
+    edit_date = getattr(telethon_message, "edit_date", None)
 
     return Message(
         chat_id=chat_id,
@@ -102,7 +103,7 @@ def build_message_from_telethon(
         sender_name=extract_sender_name(sender),
         text=text,
         reply_to_message_id=int(reply_to) if reply_to else None,
-        edited_at=None,
+        edited_at=edit_date,
         raw_json=raw_json,
     )
 

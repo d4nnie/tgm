@@ -1,9 +1,11 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
 ChatType = Literal["user", "group", "supergroup", "channel"]
 LlmProvider = Literal["openai-compat"]
+StatusCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True)

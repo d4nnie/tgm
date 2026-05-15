@@ -1,7 +1,4 @@
-from collections.abc import Callable
 from dataclasses import dataclass
-
-StatusCallback = Callable[[str], None]
 
 _FLOOD_WAIT_ERROR_NAME = "FloodWaitError"
 _FLOOD_WAIT_CAP_SECONDS = 600

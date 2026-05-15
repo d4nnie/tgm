@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from tgm.cli.auth import run_with_session_guard
 from tgm.cli.prompts import make_click_login_callbacks, make_click_status_callback
-from tgm.core.errors import SingleInstanceError, StatusCallback
+from tgm.core.errors import SingleInstanceError
 from tgm.core.parsing import classify_telethon_entity, extract_entity_display_name
-from tgm.core.types import Chat
+from tgm.core.types import Chat, StatusCallback
 from tgm.shell.client import fetch_dialogs, login
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.orm import ChatRow

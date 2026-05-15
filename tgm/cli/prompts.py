@@ -5,7 +5,7 @@ from collections.abc import Mapping
 
 import click
 
-from tgm.core.errors import StatusCallback
+from tgm.core.types import StatusCallback
 from tgm.shell.client import LoginCallbacks
 
 

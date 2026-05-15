@@ -43,13 +43,16 @@ def trim_to_budget(
     max_tokens: int,
 ) -> list[PerChatDigestPart]:
     parts = list(digest_parts)
-    while _estimate_parts_tokens(parts) > max_tokens:
+    total = _estimate_parts_tokens(parts)
+    while total > max_tokens:
         candidates = [index for index, part in enumerate(parts) if part.highlights]
         # Never strip the newest part's highlights — the freshest signal stays.
         if len(candidates) <= 1:
             return parts
         oldest = candidates[0]
+        stripped = sum(estimate_tokens(highlight.why) for highlight in parts[oldest].highlights)
         parts[oldest] = replace(parts[oldest], highlights=[])
+        total -= stripped
     return parts
 
 

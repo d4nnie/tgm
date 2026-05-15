@@ -40,10 +40,10 @@ def test_is_chat_due_returns_true_well_past_boundary():
     assert is_chat_due(_chat(period=30), _NOW, last_run) is True
 
 
-def test_is_chat_due_returns_false_when_now_before_last_run():
-    last_run = _NOW + timedelta(minutes=5)
+def test_is_chat_due_returns_true_when_last_run_in_the_future_clock_skew():
+    last_run = _NOW + timedelta(hours=1)
 
-    assert is_chat_due(_chat(period=30), _NOW, last_run) is False
+    assert is_chat_due(_chat(period=30), _NOW, last_run) is True
 
 
 def test_pick_chats_due_returns_only_due_chats():

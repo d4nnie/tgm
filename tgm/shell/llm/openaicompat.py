@@ -44,7 +44,7 @@ class OpenAiCompatibleProvider:
         user: str,
         schema: JsonSchema,
         max_input_tokens: int,
-    ) -> dict:
+    ) -> dict[str, Any]:
         prompt_tokens_estimated = check_input_budget(system, user, max_input_tokens)
         prompt_chars = len(system) + len(user)
         request_body = build_chat_completions_request(
@@ -82,7 +82,7 @@ class OpenAiCompatibleProvider:
         request_body: dict[str, Any],
         prompt_chars: int,
         prompt_tokens_estimated: int,
-    ) -> dict:
+    ) -> dict[str, Any]:
         attempt = 0
         last_log_signature: tuple[str, int] | None = None
         while True:

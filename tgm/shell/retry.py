@@ -12,9 +12,9 @@ from tgm.core.errors import (
     ReraiseAction,
     RetrySleepAction,
     SessionExpiredError,
-    StatusCallback,
     decide_retry_action,
 )
+from tgm.core.types import StatusCallback
 
 logger = logging.getLogger(__name__)
 

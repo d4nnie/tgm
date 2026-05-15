@@ -54,12 +54,13 @@ def update_message_edit(
     text: str | None,
     edited_at: datetime,
     raw_json: str,
-) -> None:
-    session.execute(
+) -> int:
+    result = session.execute(
         update(MessageRow)
         .where(MessageRow.chat_id == chat_id, MessageRow.message_id == message_id)
         .values(text=text, edited_at=edited_at, raw_json=raw_json)
     )
+    return int(result.rowcount or 0)  # ty: ignore[unresolved-attribute]
 
 
 def upsert_chat(session: Session, chat: Chat) -> None:

@@ -85,7 +85,7 @@ def build_chat_completions_request(
     return request
 
 
-def parse_chat_completions_response(payload: Mapping[str, Any]) -> dict:
+def parse_chat_completions_response(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise LLMResponseError("Response payload is not an object")
 

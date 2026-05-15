@@ -443,8 +443,8 @@ def test_build_chat_dialog_falls_back_to_id_when_title_missing():
     assert build_chat_dialog_from_telethon(dialog).title == "id=99"
 
 
-def _per_chat_payload(**overrides):
-    base = {
+def _per_chat_payload(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
         "summary": "Discussed deploy",
         "highlights": [{"message_id": 42, "why": "blocker"}],
         "updated_rolling_summary": "Team aligned",
@@ -486,8 +486,8 @@ def test_parse_per_chat_response_wraps_validation_error():
         parse_per_chat_response({"summary": "x", "highlights": []}, known_message_ids=set())
 
 
-def _global_payload(**overrides):
-    base = {
+def _global_payload(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
         "summary": "Overall steady",
         "highlights": [{"chat_id": 111, "message_id": 7, "why": "deadline"}],
     }
@@ -519,8 +519,8 @@ def test_parse_global_response_wraps_validation_error():
         parse_global_response({"summary": "x"}, known_chat_message_pairs=set())
 
 
-def _criteria_payload(**overrides):
-    base = {
+def _criteria_payload(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
         "new_criteria_text": "New rules",
         "what_changed": "Added something",
     }

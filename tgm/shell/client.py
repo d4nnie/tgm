@@ -40,7 +40,7 @@ from tgm.core.auth import (
     create_initial_state,
     decide_next_action,
 )
-from tgm.core.errors import NetworkError, SessionExpiredError, StatusCallback
+from tgm.core.errors import NetworkError, SessionExpiredError
 from tgm.core.parsing import (
     build_chat_dialog_from_telethon,
     build_edit_payload_from_telethon,
@@ -48,7 +48,7 @@ from tgm.core.parsing import (
     get_chat_scope,
     serialize_telethon_message,
 )
-from tgm.core.types import ChatDialog, TelegramCredentials
+from tgm.core.types import ChatDialog, StatusCallback, TelegramCredentials
 from tgm.shell.config import (
     load_telegram_credentials,
     save_telegram_credentials,
@@ -263,7 +263,7 @@ async def _handle_message_edited(
         raw_json=serialize_telethon_message(event.message),
         fallback_edited_at=datetime.now(UTC),
     )
-    update_message_edit(
+    rowcount = update_message_edit(
         session,
         chat_id=payload.chat_id,
         message_id=payload.message_id,
@@ -271,6 +271,14 @@ async def _handle_message_edited(
         edited_at=payload.edited_at,
         raw_json=payload.raw_json,
     )
+    if rowcount == 0:
+        # Edit arrived before backfill caught the original message.
+        # iter_messages will pick up the edited text on the next backfill pass.
+        logger.debug(
+            "Edit dropped for unknown message",
+            extra={"chat_id": payload.chat_id, "message_id": payload.message_id},
+        )
+        return
     session.commit()
 
 
@@ -286,7 +294,13 @@ async def backfill_messages(client: TelegramClient, session: Session, status_cal
     chat_ids = list_monitored_chat_ids(session)
     logger.info("Starting backfill for monitored chats", extra={"chats": len(chat_ids)})
     for chat_id in chat_ids:
-        await _backfill_chat(client, session, chat_id, status_callback)
+        try:
+            await _backfill_chat(client, session, chat_id, status_callback)
+        except SessionExpiredError:
+            raise
+        except Exception:
+            logger.error("Backfill failed for chat", extra={"chat_id": chat_id}, exc_info=True)
+            continue
 
 
 async def _backfill_chat(

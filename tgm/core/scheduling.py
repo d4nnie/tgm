@@ -4,10 +4,9 @@ from tgm.core.types import Chat
 
 
 def is_chat_due(chat: Chat, now: datetime, last_run_at: datetime | None) -> bool:
-    if last_run_at is None:
+    # Clock skew (future last_run_at) treated as due; one fire resets state via upsert_run_state.
+    if last_run_at is None or now < last_run_at:
         return True
-    if now < last_run_at:
-        return False
     return now - last_run_at >= timedelta(minutes=chat.period_n_minutes)
 
 
