@@ -72,22 +72,15 @@ def test_classify_user_deactivated_returns_session_expired():
     assert classify_telethon_error(_FakeUserDeactivatedError(), attempt=0) == SessionExpiredOutcome()
 
 
-@pytest.mark.parametrize("attempt,expected_seconds", [(0, 1), (1, 2), (2, 4), (3, 8), (4, 16)])
+@pytest.mark.parametrize("attempt,expected_seconds", [(0, 1), (1, 2), (2, 4), (3, 8), (4, 16), (5, 30)])
 def test_classify_network_error_uses_exponential_backoff(attempt: int, expected_seconds: int):
     outcome = classify_telethon_error(ConnectionError("disconnected"), attempt=attempt)
 
     assert outcome == NetworkRetryOutcome(wait_seconds=expected_seconds, attempt=attempt)
 
 
-def test_classify_network_error_caps_backoff_at_thirty_seconds():
-    outcome = classify_telethon_error(OSError("network down"), attempt=4)
-
-    assert isinstance(outcome, NetworkRetryOutcome)
-    assert outcome.wait_seconds <= 30
-
-
 def test_classify_network_error_returns_none_at_max_attempts():
-    assert classify_telethon_error(ConnectionError(), attempt=5) is None
+    assert classify_telethon_error(ConnectionError(), attempt=6) is None
 
 
 def test_classify_handles_os_error():
@@ -119,7 +112,7 @@ def test_decide_retry_action_sleeps_for_flood_wait():
 def test_decide_retry_action_sleeps_for_network_retry():
     action = decide_retry_action(ConnectionError("flap"), attempt=2)
 
-    assert action == RetrySleepAction(seconds=4, message="Network error, retry in 4s (attempt 3/5)")
+    assert action == RetrySleepAction(seconds=4, message="Network error, retry in 4s (attempt 3/6)")
 
 
 def test_decide_retry_action_raises_session_expired_for_auth_key():
@@ -127,7 +120,7 @@ def test_decide_retry_action_raises_session_expired_for_auth_key():
 
 
 def test_decide_retry_action_raises_network_after_attempts_exhausted():
-    assert decide_retry_action(ConnectionError(), attempt=5) == RaiseNetworkAction()
+    assert decide_retry_action(ConnectionError(), attempt=6) == RaiseNetworkAction()
 
 
 def test_decide_retry_action_reraises_unknown_error():
@@ -174,7 +167,7 @@ def test_classify_server_error_exhausted_returns_none():
 
     _FakeError.__name__ = "ServerError"
 
-    assert classify_telethon_error(_FakeError(), attempt=5) is None
+    assert classify_telethon_error(_FakeError(), attempt=6) is None
 
 
 def test_decide_retry_action_sleeps_for_server_error():
@@ -185,7 +178,7 @@ def test_decide_retry_action_sleeps_for_server_error():
 
     action = decide_retry_action(_FakeError(), attempt=1)
 
-    assert action == RetrySleepAction(seconds=2, message="Network error, retry in 2s (attempt 2/5)")
+    assert action == RetrySleepAction(seconds=2, message="Network error, retry in 2s (attempt 2/6)")
 
 
 def test_decide_retry_action_raises_network_for_exhausted_server_error():
@@ -194,7 +187,7 @@ def test_decide_retry_action_raises_network_for_exhausted_server_error():
 
     _FakeError.__name__ = "ServerError"
 
-    assert decide_retry_action(_FakeError(), attempt=5) == RaiseNetworkAction()
+    assert decide_retry_action(_FakeError(), attempt=6) == RaiseNetworkAction()
 
 
 def test_classify_flood_wait_under_cap_returns_retryable_outcome():

@@ -7,16 +7,17 @@ from sqlalchemy.orm import Session
 
 from tgm.cli.auth import run_with_session_guard
 from tgm.cli.prompts import make_click_login_callbacks, make_click_status_callback
-from tgm.core.errors import StatusCallback
+from tgm.core.errors import SingleInstanceError, StatusCallback
 from tgm.core.parsing import classify_telethon_entity, extract_entity_display_name
 from tgm.core.types import Chat
 from tgm.shell.client import fetch_dialogs, login
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.orm import ChatRow
-from tgm.shell.platform import require_single_instance
+from tgm.shell.platform import acquire_exclusive_lock, require_single_instance
 from tgm.shell.repos import (
     get_chat_profile,
     is_chat_monitored,
+    list_chats,
     mark_chat_unmonitored,
     update_chat_period,
     upsert_chat,
@@ -31,11 +32,37 @@ def chat_group() -> None:
 
 
 @chat_group.command(name="list")
+@click.option("--remote", is_flag=True, default=False, help="Fetch dialogs from Telegram (requires session).")
 @click.pass_obj
-@require_single_instance
-def chat_list(handle: DatabaseHandle) -> None:
-    """Print all dialogs in the account as JSON."""
-    run_with_session_guard(_run_chat_list(handle))
+def chat_list(handle: DatabaseHandle, remote: bool) -> None:
+    """List chats. Default: local SQLite (monitored chats). --remote: full Telegram dialog list."""
+    if remote:
+        _run_remote_chat_list_with_lock(handle)
+        return
+    _run_local_chat_list(handle)
+
+
+def _run_local_chat_list(handle: DatabaseHandle) -> None:
+    with handle.session_factory() as session:
+        payload = [
+            {
+                "chat_id": chat.chat_id,
+                "title": chat.title,
+                "type": chat.chat_type,
+                "is_monitored": chat.is_monitored,
+                "period_n_minutes": chat.period_n_minutes,
+            }
+            for chat in list_chats(session)
+        ]
+    click.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _run_remote_chat_list_with_lock(handle: DatabaseHandle) -> None:
+    try:
+        with acquire_exclusive_lock("single-instance"):
+            run_with_session_guard(_run_chat_list(handle))
+    except SingleInstanceError as error:
+        raise click.ClickException(str(error)) from error
 
 
 @chat_group.command(name="add")

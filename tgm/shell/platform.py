@@ -27,6 +27,10 @@ def get_user_data_dir() -> Path:
     return Path(platformdirs.user_data_dir(_APP_NAME, appauthor=False, roaming=True))
 
 
+def resolve_config_path() -> Path:
+    return get_user_data_dir() / _CONFIG_FILENAME
+
+
 def ensure_user_data_dir() -> Path:
     directory = get_user_data_dir()
     directory.mkdir(parents=True, exist_ok=True)

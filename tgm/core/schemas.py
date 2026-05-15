@@ -4,6 +4,9 @@ from pydantic import BaseModel, ConfigDict
 
 from tgm.core.llm import JsonSchema
 
+# extra="forbid" gives additionalProperties:false in the schema sent to the
+# provider (ADR-0022 strict-mode contract); redundant on parse but the
+# fail-fast signal catches provider regressions early.
 _STRICT_PAYLOAD = ConfigDict(extra="forbid")
 
 

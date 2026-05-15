@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 ChatType = Literal["user", "group", "supergroup", "channel"]
-LlmProvider = Literal["openai-compat", "anthropic"]
+LlmProvider = Literal["openai-compat"]
 
 
 @dataclass(frozen=True)

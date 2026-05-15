@@ -4,7 +4,7 @@ from tgm.core.types import TelegramCredentials
 
 
 class AuthorizationFlowError(RuntimeError):
-    """Raised when the auth FSM observes an invariant violation or unreachable state."""
+    pass
 
 
 @dataclass(frozen=True)

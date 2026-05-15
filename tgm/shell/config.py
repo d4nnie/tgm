@@ -1,7 +1,6 @@
 import logging
 import os
 import tomllib
-from pathlib import Path
 from typing import Any
 
 import tomli_w
@@ -13,17 +12,12 @@ from tgm.core.config import (
     extract_telegram_credentials_from_env,
     merge_telegram_credentials,
     merge_telegram_phone,
+    validate_base_url,
 )
 from tgm.core.types import LlmProviderConfig, TelegramCredentials
-from tgm.shell.platform import get_user_data_dir
+from tgm.shell.platform import resolve_config_path
 
 logger = logging.getLogger(__name__)
-
-_CONFIG_FILENAME = "config.toml"
-
-
-def resolve_config_path() -> Path:
-    return get_user_data_dir() / _CONFIG_FILENAME
 
 
 def load_telegram_credentials() -> TelegramCredentials | None:
@@ -50,6 +44,26 @@ def load_llm_provider_config() -> LlmProviderConfig:
     if "llm" not in config:
         config = _ensure_default_llm_section(config)
     return extract_llm_provider_config_from_config(config)
+
+
+def save_llm_provider_config(provider_config: LlmProviderConfig) -> None:
+    validate_base_url(provider_config.base_url, provider_config.allow_hosts)
+    section: dict[str, Any] = {
+        "provider": provider_config.provider,
+        "base_url": provider_config.base_url,
+        "model": provider_config.model,
+    }
+    if provider_config.api_key_env:
+        section["api_key_env"] = provider_config.api_key_env
+    if provider_config.options:
+        section["options"] = dict(provider_config.options)
+    if provider_config.allow_hosts:
+        section["allow_hosts"] = list(provider_config.allow_hosts)
+
+    new_config = dict(_read_config())
+    new_config["llm"] = section
+    _write_config_atomic(new_config)
+    logger.info("Saved LLM provider config")
 
 
 def _ensure_default_llm_section(config: dict[str, Any]) -> dict[str, Any]:

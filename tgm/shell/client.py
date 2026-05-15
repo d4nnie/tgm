@@ -40,7 +40,7 @@ from tgm.core.auth import (
     create_initial_state,
     decide_next_action,
 )
-from tgm.core.errors import SessionExpiredError, StatusCallback
+from tgm.core.errors import NetworkError, SessionExpiredError, StatusCallback
 from tgm.core.parsing import (
     build_chat_dialog_from_telethon,
     build_edit_payload_from_telethon,
@@ -58,7 +58,6 @@ from tgm.shell.platform import get_user_data_dir, restrict_path_access
 from tgm.shell.repos import (
     get_run_state,
     insert_message,
-    is_chat_monitored,
     list_monitored_chat_ids,
     update_message_edit,
 )
@@ -200,29 +199,41 @@ def _execute_local_action(action: Action) -> Event:
     raise AuthorizationFlowError(f"unexpected local action: {action!r}")
 
 
-def subscribe_to_message_events(client: TelegramClient, session: Session, status_callback: StatusCallback) -> None:
+def subscribe_to_message_events(
+    client: TelegramClient,
+    session: Session,
+    status_callback: StatusCallback,
+    monitored_chat_ids: set[int],
+) -> None:
     @client.on(events.NewMessage())
     async def _on_new_message(event: events.NewMessage.Event) -> None:
-        await _handle_new_message(session, event, status_callback)
+        await _handle_new_message(session, event, status_callback, monitored_chat_ids)
 
     @client.on(events.MessageEdited())
     async def _on_message_edited(event: events.MessageEdited.Event) -> None:
-        await _handle_message_edited(session, event, status_callback)
+        await _handle_message_edited(session, event, status_callback, monitored_chat_ids)
 
     logger.info("Subscribed to Telegram message events")
 
 
 async def _handle_new_message(
-    session: Session, event: events.NewMessage.Event, status_callback: StatusCallback
+    session: Session,
+    event: events.NewMessage.Event,
+    status_callback: StatusCallback,
+    monitored_chat_ids: set[int],
 ) -> None:
     chat_id = event.chat_id
-    if chat_id is None or not is_chat_monitored(session, int(chat_id)):
+    if chat_id is None or int(chat_id) not in monitored_chat_ids:
         return
 
     try:
         sender = await do_with_telethon_guard(lambda: event.get_sender(), status_callback)
     except SessionExpiredError:
+        logger.error("Telegram session expired in message handler", extra={"chat_id": int(chat_id)})
         status_callback(_SESSION_EXPIRED_HANDLER_MESSAGE)
+        return
+    except NetworkError:
+        status_callback("Сеть Telegram недоступна, продолжаем мониторинг")
         return
 
     message = build_message_from_telethon(
@@ -237,10 +248,13 @@ async def _handle_new_message(
 
 
 async def _handle_message_edited(
-    session: Session, event: events.MessageEdited.Event, status_callback: StatusCallback
+    session: Session,
+    event: events.MessageEdited.Event,
+    status_callback: StatusCallback,
+    monitored_chat_ids: set[int],
 ) -> None:
     chat_id = event.chat_id
-    if chat_id is None or not is_chat_monitored(session, int(chat_id)):
+    if chat_id is None or int(chat_id) not in monitored_chat_ids:
         return
 
     payload = build_edit_payload_from_telethon(
@@ -282,9 +296,10 @@ async def _backfill_chat(
     if state is None or state.last_message_id is None:
         return
 
+    sender_cache: dict[int, object] = {}
     inserted_count = 0
     async for telethon_message in client.iter_messages(chat_id, min_id=state.last_message_id):
-        sender = await do_with_telethon_guard(lambda message=telethon_message: message.get_sender(), status_callback)
+        sender = await _resolve_sender(client, telethon_message, sender_cache, status_callback)
         message = build_message_from_telethon(
             chat_id=chat_id,
             telethon_message=telethon_message,
@@ -300,6 +315,27 @@ async def _backfill_chat(
         "Backfilled chat",
         extra={"chat_id": chat_id, "inserted": inserted_count, "since_message_id": state.last_message_id},
     )
+
+
+async def _resolve_sender(
+    client: TelegramClient,
+    telethon_message: object,
+    sender_cache: dict[int, object],
+    status_callback: StatusCallback,
+) -> object | None:
+    sender_id = getattr(telethon_message, "sender_id", None)
+    if sender_id is None:
+        return None
+    if sender_id in sender_cache:
+        return sender_cache[sender_id]
+    cached = getattr(telethon_message, "sender", None)
+    if cached is None:
+        cached = await do_with_telethon_guard(
+            lambda identifier=sender_id: client.get_entity(identifier),
+            status_callback,
+        )
+    sender_cache[sender_id] = cached
+    return cached
 
 
 def _evaluate_telethon_session_argument() -> str:

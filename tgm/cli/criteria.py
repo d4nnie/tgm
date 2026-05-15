@@ -7,10 +7,12 @@ import click
 from sqlalchemy.orm import Session
 
 from tgm.core.errors import SingleInstanceError
+from tgm.core.feedback import build_feedback_samples, group_feedback_by_chat
 from tgm.core.parsing import parse_criteria_response
 from tgm.core.prompts import build_criteria_recalc_prompt
 from tgm.core.schemas import CRITERIA_RECALC_RESPONSE_SCHEMA
-from tgm.core.types import Feedback, FeedbackSample
+from tgm.core.scopes import parse_chat_scope
+from tgm.core.types import FeedbackSample
 from tgm.shell.config import load_llm_provider_config
 from tgm.shell.db import DatabaseHandle
 from tgm.shell.llm import build_provider
@@ -162,7 +164,7 @@ def _gather_recalc_inputs(handle: DatabaseHandle, scope: str) -> _RecalcInputs:
         unconsumed = get_unconsumed_feedback(session, scope=feedback_filter, chat_id=chat_id_filter)
         if not unconsumed:
             raise click.ClickException(f"no unconsumed feedback for scope {scope!r}")
-        samples = [_to_feedback_sample(session, feedback) for feedback in unconsumed]
+        samples = _build_samples_with_one_select_per_chat(session, unconsumed)
         about_me = get_user_profile_about_me(session) or ""
         consumed_ids = [feedback.id for feedback in unconsumed]
     return _RecalcInputs(
@@ -174,20 +176,21 @@ def _gather_recalc_inputs(handle: DatabaseHandle, scope: str) -> _RecalcInputs:
     )
 
 
-def _to_feedback_sample(session: Session, feedback: Feedback) -> FeedbackSample:
-    messages = get_messages_by_ids(session, chat_id=feedback.chat_id, message_ids=feedback.message_ids)
-    return FeedbackSample(user_comment=feedback.user_comment, messages=messages)
+def _build_samples_with_one_select_per_chat(session: Session, feedback_items: list) -> list[FeedbackSample]:
+    grouped = group_feedback_by_chat(feedback_items)
+    messages_by_pair = {}
+    for chat_id, feedback_for_chat in grouped.items():
+        message_ids = sorted({mid for feedback in feedback_for_chat for mid in feedback.message_ids})
+        for message in get_messages_by_ids(session, chat_id=chat_id, message_ids=message_ids):
+            messages_by_pair[(chat_id, message.message_id)] = message
+    return build_feedback_samples(feedback_items, messages_by_pair)
 
 
 def _parse_recalc_scope(scope: str) -> tuple[str, int | None]:
-    if scope == "global":
-        return "global", None
-    if scope.startswith("chat:"):
-        try:
-            return "chat", int(scope[len("chat:") :])
-        except ValueError as error:
-            raise click.BadParameter(f"--scope chat:<id> must have integer id; got {scope!r}") from error
-    raise click.BadParameter(f"--scope must be 'global' or 'chat:<id>'; got {scope!r}")
+    try:
+        return parse_chat_scope(scope)
+    except ValueError as error:
+        raise click.BadParameter(str(error)) from error
 
 
 def _format_datetime(value: datetime) -> str:

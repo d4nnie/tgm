@@ -20,7 +20,7 @@ _NETWORK_ERROR_TYPES: tuple[type[BaseException], ...] = (
     OSError,
     TimeoutError,
 )
-_MAX_NETWORK_RETRIES = 5
+_MAX_NETWORK_RETRIES = 6
 _NETWORK_BACKOFF_CAP_SECONDS = 30
 
 

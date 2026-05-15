@@ -98,6 +98,8 @@ def _require_llm_section(config: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def _extract_llm_provider(section: Mapping[str, Any]) -> LlmProvider:
     value = section.get("provider")
+    if value == "anthropic":
+        raise ValueError("Provider 'anthropic' is reserved for a future release")
     if value not in _VALID_LLM_PROVIDERS:
         raise ValueError(f"llm.provider must be one of {sorted(_VALID_LLM_PROVIDERS)}; got: {value!r}")
     return cast(LlmProvider, value)

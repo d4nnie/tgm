@@ -38,7 +38,7 @@ class ChatProfileRow(Base):
 class MessageRow(Base):
     __tablename__ = "messages"
 
-    chat_id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[int] = mapped_column(ForeignKey("chats.chat_id"), primary_key=True)
     message_id: Mapped[int] = mapped_column("msg_id", primary_key=True)
     timestamp: Mapped[datetime] = mapped_column("ts")
     sender_id: Mapped[int | None]
@@ -46,7 +46,7 @@ class MessageRow(Base):
     text: Mapped[str | None]
     reply_to_message_id: Mapped[int | None] = mapped_column("reply_to_msg_id")
     edited_at: Mapped[datetime | None]
-    raw_json: Mapped[str | None]
+    raw_json: Mapped[str]
 
     __table_args__ = (Index("idx_messages_chat_ts", "chat_id", "ts"),)
 
@@ -81,12 +81,14 @@ class FeedbackRow(Base):
     __tablename__ = "feedback"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    chat_id: Mapped[int]
+    chat_id: Mapped[int] = mapped_column(ForeignKey("chats.chat_id"))
     message_ids_json: Mapped[str] = mapped_column("msg_ids_json")
     user_comment: Mapped[str | None]
     scope: Mapped[str]
     consumed: Mapped[bool] = mapped_column(default=False)
     marked_at: Mapped[datetime]
+
+    __table_args__ = (Index("idx_feedback_scope_consumed_marked", "scope", "consumed", "marked_at"),)
 
 
 class RunStateRow(Base):

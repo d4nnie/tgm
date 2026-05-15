@@ -224,12 +224,11 @@ def test_extract_llm_provider_config_returns_openai_compat_with_full_section():
     )
 
 
-def test_extract_llm_provider_config_accepts_anthropic_value():
+def test_extract_llm_provider_config_rejects_anthropic_value_with_explainable_message():
     config = {"llm": _full_llm_section(provider="anthropic")}
 
-    result = extract_llm_provider_config_from_config(config)
-
-    assert result.provider == "anthropic"
+    with pytest.raises(ValueError, match="reserved for a future release"):
+        extract_llm_provider_config_from_config(config)
 
 
 def test_extract_llm_provider_config_omits_optional_api_key_env():

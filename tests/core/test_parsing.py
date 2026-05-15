@@ -349,7 +349,7 @@ def test_row_to_message_maps_all_fields():
     )
 
 
-def test_row_to_message_treats_null_raw_json_as_empty_string():
+def test_row_to_message_keeps_raw_json_as_string():
     row = SimpleNamespace(
         chat_id=1,
         message_id=1,
@@ -359,10 +359,10 @@ def test_row_to_message_treats_null_raw_json_as_empty_string():
         text=None,
         reply_to_message_id=None,
         edited_at=None,
-        raw_json=None,
+        raw_json="{}",
     )
 
-    assert convert_row_to_message(row).raw_json == ""
+    assert convert_row_to_message(row).raw_json == "{}"
 
 
 def test_chat_scope_formats_chat_id():
@@ -547,3 +547,106 @@ def test_parse_criteria_response_raises_on_empty_what_changed():
 def test_parse_criteria_response_wraps_validation_error():
     with pytest.raises(LLMResponseError, match="CriteriaRecalcResponse schema"):
         parse_criteria_response({"new_criteria_text": "x"})
+
+
+def test_convert_row_to_feedback_parses_message_ids_json():
+    from tgm.core.parsing import convert_row_to_feedback
+
+    row = SimpleNamespace(
+        id=42,
+        chat_id=100,
+        message_ids_json="[1, 2, 3]",
+        user_comment="check this",
+        scope="chat",
+        consumed=0,
+        marked_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    feedback = convert_row_to_feedback(row)
+
+    assert feedback.id == 42
+    assert feedback.chat_id == 100
+    assert feedback.message_ids == [1, 2, 3]
+    assert feedback.consumed is False
+
+
+def test_convert_row_to_feedback_treats_none_json_as_empty_list():
+    from tgm.core.parsing import convert_row_to_feedback
+
+    row = SimpleNamespace(
+        id=1,
+        chat_id=10,
+        message_ids_json=None,
+        user_comment=None,
+        scope="global",
+        consumed=1,
+        marked_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    feedback = convert_row_to_feedback(row)
+
+    assert feedback.message_ids == []
+    assert feedback.consumed is True
+
+
+def test_convert_row_to_feedback_treats_empty_string_json_as_empty_list():
+    from tgm.core.parsing import convert_row_to_feedback
+
+    row = SimpleNamespace(
+        id=1,
+        chat_id=10,
+        message_ids_json="",
+        user_comment=None,
+        scope="chat",
+        consumed=0,
+        marked_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    feedback = convert_row_to_feedback(row)
+
+    assert feedback.message_ids == []
+
+
+def test_convert_row_to_importance_criteria_coerces_types():
+    from tgm.core.parsing import convert_row_to_importance_criteria
+
+    row = SimpleNamespace(
+        id="7",
+        scope="global",
+        criteria_text="be relevant",
+        version="3",
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    criteria = convert_row_to_importance_criteria(row)
+
+    assert criteria.id == 7
+    assert criteria.version == 3
+    assert criteria.scope == "global"
+
+
+def test_convert_row_to_chat_profile_falls_back_to_empty_strings():
+    from tgm.core.parsing import convert_row_to_chat_profile
+
+    row = SimpleNamespace(
+        chat_id=99,
+        description_prompt=None,
+        rolling_summary=None,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    profile = convert_row_to_chat_profile(row)
+
+    assert profile.description_prompt == ""
+    assert profile.rolling_summary == ""
+
+
+def test_parse_global_response_raises_on_empty_highlight_why():
+    payload = {
+        "summary": "all clear",
+        "highlights": [{"chat_id": 1, "message_id": 1, "why": ""}],
+    }
+    pairs = {(1, 1)}
+
+    with pytest.raises(LLMResponseError, match="why"):
+        parse_global_response(payload, known_chat_message_pairs=pairs)

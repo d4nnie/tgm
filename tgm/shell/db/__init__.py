@@ -104,4 +104,6 @@ def _attach_pragmas(engine: Engine) -> None:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA foreign_keys=ON")
+        # 5s cap when waiting on a write-write conflict; SQLite retries internally.
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()

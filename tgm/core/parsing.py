@@ -152,7 +152,7 @@ def convert_row_to_message(row: Any) -> Message:
         text=row.text,
         reply_to_message_id=row.reply_to_message_id,
         edited_at=row.edited_at,
-        raw_json=str(row.raw_json or ""),
+        raw_json=str(row.raw_json),
     )
 
 

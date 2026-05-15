@@ -1,8 +1,11 @@
-from dataclasses import replace
+from dataclasses import dataclass, replace
+
+import pytest
 
 from tgm.core.auth import (
     ApiCredentialsProvided,
     AuthorizationChecked,
+    AuthorizationFlowError,
     CheckAuthorization,
     CodeRequested,
     CredentialsLoaded,
@@ -25,6 +28,11 @@ from tgm.core.auth import (
     SignInWithCode,
     SignInWithPassword,
     SmsCodeProvided,
+    _apply_login_event,
+    _apply_post_login_event,
+    _apply_pre_login_event,
+    _decide_login_dance,
+    _decide_persistence,
     apply_event,
     create_initial_state,
     decide_next_action,
@@ -501,3 +509,67 @@ def test_full_flow_env_credentials_need_phone_only():
     state = apply_event(state, SessionRestricted())
 
     assert decide_next_action(state) == Finish(expected_credentials)
+
+
+# Site 1 (decide_next_action:208) is an unreachable failsafe — it would only fire if
+# _decide_credential_resolution stops returning RequestApiCredentials for credentials=None.
+# Cannot be reached without monkey-patching the FSM, which CLAUDE.md §Testing forbids.
+
+
+def test_decide_login_dance_raises_when_phone_missing_invariant_violation():
+    credentials = TelegramCredentials(api_id=1, api_hash="h", phone=None)
+    state = replace(
+        create_initial_state(),
+        credentials_load_attempted=True,
+        credentials=credentials,
+        authorization_checked=True,
+        authorized=False,
+    )
+
+    with pytest.raises(AuthorizationFlowError, match="phone"):
+        _decide_login_dance(state, credentials)
+
+
+def test_decide_persistence_raises_when_fresh_phone_but_phone_missing():
+    credentials = TelegramCredentials(api_id=1, api_hash="h", phone=None)
+    state = replace(create_initial_state(), fresh_phone=True)
+
+    with pytest.raises(AuthorizationFlowError, match="fresh_phone"):
+        _decide_persistence(state, credentials)
+
+
+def test_apply_event_raises_when_phone_provided_without_credentials():
+    state = create_initial_state()
+
+    with pytest.raises(AuthorizationFlowError, match="PhoneProvided"):
+        apply_event(state, PhoneProvided("+1"))
+
+
+@dataclass(frozen=True)
+class _SyntheticPreLoginEvent:
+    pass
+
+
+@dataclass(frozen=True)
+class _SyntheticLoginEvent:
+    pass
+
+
+@dataclass(frozen=True)
+class _SyntheticPostLoginEvent:
+    pass
+
+
+def test_apply_pre_login_event_raises_on_unknown_event():
+    with pytest.raises(AuthorizationFlowError, match="unexpected pre-login"):
+        _apply_pre_login_event(create_initial_state(), _SyntheticPreLoginEvent())  # ty: ignore[invalid-argument-type]
+
+
+def test_apply_login_event_raises_on_unknown_event():
+    with pytest.raises(AuthorizationFlowError, match="unexpected login"):
+        _apply_login_event(create_initial_state(), _SyntheticLoginEvent())  # ty: ignore[invalid-argument-type]
+
+
+def test_apply_post_login_event_raises_on_unknown_event():
+    with pytest.raises(AuthorizationFlowError, match="unexpected post-login"):
+        _apply_post_login_event(create_initial_state(), _SyntheticPostLoginEvent())  # ty: ignore[invalid-argument-type]

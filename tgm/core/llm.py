@@ -86,14 +86,26 @@ def build_chat_completions_request(
 
 
 def parse_chat_completions_response(payload: Mapping[str, Any]) -> dict:
-    choices = payload.get("choices") or []
+    if not isinstance(payload, Mapping):
+        raise LLMResponseError("Response payload is not an object")
+
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        raise LLMResponseError("Response 'choices' is not a list")
     if not choices:
         raise LLMResponseError("Response has no choices")
 
-    message = choices[0].get("message") or {}
+    first_choice = choices[0]
+    if not isinstance(first_choice, Mapping):
+        raise LLMResponseError("Response 'choices[0]' is not an object")
+
+    message = first_choice.get("message")
+    if not isinstance(message, Mapping):
+        raise LLMResponseError("Response 'choices[0].message' is not an object")
+
     content = message.get("content")
-    if content is None:
-        raise LLMResponseError("Response message has no content")
+    if not isinstance(content, str):
+        raise LLMResponseError("Response 'choices[0].message.content' is not a string")
 
     try:
         return json.loads(content)
