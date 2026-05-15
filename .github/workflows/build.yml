@@ -62,6 +62,7 @@ jobs:
         run: |
           uv run pyinstaller --noconfirm --clean --name telegram-monitor --onedir \
             --collect-data tgm.shell.db.migrations \
+            --collect-data tgm.core.templates \
             entry.py
 
       - name: Stage AppDir
@@ -118,6 +119,7 @@ jobs:
         run: |
           uv run pyinstaller --noconfirm --clean --name telegram-monitor --onefile `
             --collect-data tgm.shell.db.migrations `
+            --collect-data tgm.core.templates `
             entry.py
 
       - name: Smoke check (boot + migrate)

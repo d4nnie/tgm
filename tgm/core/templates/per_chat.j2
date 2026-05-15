@@ -1,0 +1,21 @@
+=== About me ===
+{{ about_me }}
+
+=== Chat profile ===
+{{ chat_description }}
+
+=== Importance criteria ===
+{{ criteria_text }}
+
+=== Previous rolling summary ===
+{{ rolling_summary }}
+
+=== New messages (chronological) ===
+{% for message in messages %}
+{{ render_message(message) }}
+{% endfor %}
+
+Задача:
+1. Кратко суммаризируй обсуждение за этот период (на языке чата).
+2. Выдели важные сообщения по критериям выше — для каждого message_id и краткое объяснение why.
+3. Обнови rolling_summary, чтобы он отражал актуальное состояние обсуждения.

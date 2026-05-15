@@ -1,0 +1,19 @@
+=== About me ===
+{{ about_me }}
+
+=== Current criteria text ===
+{{ current_criteria_text }}
+
+=== Feedback samples ===
+{% for sample in feedback_samples %}
+[sample {{ loop.index }}]
+  comment: {{ (sample.user_comment or "") | to_json }}
+  messages:
+{% for message in sample.messages %}
+    {{ render_message(message) }}
+{% endfor %}
+{% endfor %}
+
+Задача:
+Перепиши criteria_text так, чтобы он учитывал эти примеры (и продолжал учитывать всё,
+что было раньше). Не теряй старые правила без причины.

@@ -1,0 +1,19 @@
+=== About me ===
+{{ about_me }}
+
+=== Importance criteria (global) ===
+{{ global_criteria_text }}
+
+=== Per-chat digests за последний цикл ===
+{% for part in per_chat_digests %}
+{% if not loop.first %}
+---
+{% endif %}
+[chat_id={{ part.chat_id }}, title={{ part.title | to_json }}]
+summary: {{ part.summary }}
+highlights: [{% for highlight in part.highlights %}{message_id={{ highlight.message_id }}, why={{ highlight.why | to_json }}}{% if not loop.last %}, {% endif %}{% endfor %}]
+{% endfor %}
+
+Задача:
+Собери единый обзор: где требуется внимание пользователя, где есть решения / дедлайны,
+что можно проигнорировать. Highlights — со ссылкой на конкретный чат и сообщение.

@@ -1,5 +1,7 @@
 import json
 
+from jinja2 import Environment, PackageLoader, StrictUndefined
+
 from tgm.core.types import FeedbackSample, Message, PerChatDigestPart
 
 _PER_CHAT_SYSTEM_PROMPT = "Ты — ассистент, который делает краткие сводки чатов.\nВозвращай только валидный JSON."
@@ -13,24 +15,26 @@ _CRITERIA_RECALC_SYSTEM_PROMPT = (
     "Возвращай только валидный JSON."
 )
 
-_PER_CHAT_TASK = (
-    "Задача:\n"
-    "1. Кратко суммаризируй обсуждение за этот период (на языке чата).\n"
-    "2. Выдели важные сообщения по критериям выше — для каждого message_id и краткое объяснение why.\n"
-    "3. Обнови rolling_summary, чтобы он отражал актуальное состояние обсуждения."
-)
 
-_GLOBAL_TASK = (
-    "Задача:\n"
-    "Собери единый обзор: где требуется внимание пользователя, где есть решения / дедлайны,\n"
-    "что можно проигнорировать. Highlights — со ссылкой на конкретный чат и сообщение."
-)
+def render_message(message: Message) -> str:
+    sender = message.sender_name or "unknown"
+    text = message.text if message.text is not None else "<no text>"
+    return f"[message_id={message.message_id}] {sender} ({message.timestamp.isoformat()}): {text}"  # noqa: WPS221  # message render template; interpolation chain is the readable form
 
-_CRITERIA_RECALC_TASK = (
-    "Задача:\n"
-    "Перепиши criteria_text так, чтобы он учитывал эти примеры (и продолжал учитывать всё,\n"
-    "что было раньше). Не теряй старые правила без причины."
+
+def _to_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+_ENVIRONMENT = Environment(
+    loader=PackageLoader("tgm.core", "templates"),
+    autoescape=False,
+    undefined=StrictUndefined,
+    trim_blocks=True,
+    lstrip_blocks=True,
 )
+_ENVIRONMENT.globals["render_message"] = render_message  # ty: ignore[invalid-assignment]  # jinja2's stubbed globals dict is narrowed to its built-ins
+_ENVIRONMENT.filters["to_json"] = _to_json
 
 
 def build_per_chat_prompt(
@@ -41,15 +45,14 @@ def build_per_chat_prompt(
     criteria_text: str,
     messages: list[Message],
 ) -> tuple[str, str]:
-    sections = [
-        _section("About me", about_me),
-        _section("Chat profile", chat_description),
-        _section("Importance criteria", criteria_text),
-        _section("Previous rolling summary", rolling_summary),
-        _section("New messages (chronological)", _render_messages(messages)),
-        _PER_CHAT_TASK,
-    ]
-    return _PER_CHAT_SYSTEM_PROMPT, "\n\n".join(sections)
+    user = _ENVIRONMENT.get_template("per_chat.j2").render(
+        about_me=about_me,
+        chat_description=chat_description,
+        rolling_summary=rolling_summary,
+        criteria_text=criteria_text,
+        messages=messages,
+    )
+    return _PER_CHAT_SYSTEM_PROMPT, user
 
 
 def build_global_prompt(
@@ -58,13 +61,12 @@ def build_global_prompt(
     global_criteria_text: str,
     per_chat_digests: list[PerChatDigestPart],
 ) -> tuple[str, str]:
-    sections = [
-        _section("About me", about_me),
-        _section("Importance criteria (global)", global_criteria_text),
-        _section("Per-chat digests за последний цикл", _render_digest_parts(per_chat_digests)),
-        _GLOBAL_TASK,
-    ]
-    return _GLOBAL_SYSTEM_PROMPT, "\n\n".join(sections)
+    user = _ENVIRONMENT.get_template("global.j2").render(
+        about_me=about_me,
+        global_criteria_text=global_criteria_text,
+        per_chat_digests=per_chat_digests,
+    )
+    return _GLOBAL_SYSTEM_PROMPT, user
 
 
 def build_criteria_recalc_prompt(
@@ -73,52 +75,9 @@ def build_criteria_recalc_prompt(
     current_criteria_text: str,
     feedback_samples: list[FeedbackSample],
 ) -> tuple[str, str]:
-    sections = [
-        _section("About me", about_me),
-        _section("Current criteria text", current_criteria_text),
-        _section("Feedback samples", _render_feedback_samples(feedback_samples)),
-        _CRITERIA_RECALC_TASK,
-    ]
-    return _CRITERIA_RECALC_SYSTEM_PROMPT, "\n\n".join(sections)
-
-
-def _section(header: str, body: str) -> str:
-    return f"=== {header} ===\n{body}"
-
-
-def _render_messages(messages: list[Message]) -> str:
-    if not messages:
-        return ""
-    return "\n".join(render_message(message) for message in messages)
-
-
-def render_message(message: Message) -> str:
-    sender = message.sender_name or "unknown"
-    text = message.text if message.text is not None else "<no text>"
-    return f"[message_id={message.message_id}] {sender} ({message.timestamp.isoformat()}): {text}"  # noqa: WPS221  # message render template; interpolation chain is the readable form
-
-
-def _render_digest_parts(parts: list[PerChatDigestPart]) -> str:
-    if not parts:
-        return ""
-    return "\n---\n".join(_render_digest_part(part) for part in parts)
-
-
-def _render_digest_part(part: PerChatDigestPart) -> str:
-    highlights = ", ".join(
-        f"{{message_id={highlight.message_id}, why={json.dumps(highlight.why, ensure_ascii=False)}}}"
-        for highlight in part.highlights
+    user = _ENVIRONMENT.get_template("criteria_recalc.j2").render(
+        about_me=about_me,
+        current_criteria_text=current_criteria_text,
+        feedback_samples=feedback_samples,
     )
-    title = json.dumps(part.title, ensure_ascii=False)
-    return f"[chat_id={part.chat_id}, title={title}]\nsummary: {part.summary}\nhighlights: [{highlights}]"
-
-
-def _render_feedback_samples(samples: list[FeedbackSample]) -> str:
-    if not samples:
-        return ""
-    blocks = []
-    for index, sample in enumerate(samples, start=1):
-        comment = json.dumps(sample.user_comment or "", ensure_ascii=False)
-        rendered_messages = "\n    ".join(render_message(message) for message in sample.messages)
-        blocks.append(f"[sample {index}]\n  comment: {comment}\n  messages:\n    {rendered_messages}")
-    return "\n".join(blocks)
+    return _CRITERIA_RECALC_SYSTEM_PROMPT, user
